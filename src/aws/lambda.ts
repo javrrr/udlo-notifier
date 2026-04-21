@@ -3,44 +3,50 @@ import {
   DeleteFunctionCommand,
   GetFunctionCommand,
   GetFunctionConfigurationCommand,
+  ResourceConflictException,
   ResourceNotFoundException,
   UpdateFunctionCodeCommand,
   UpdateFunctionConfigurationCommand,
   type LambdaClient,
+  type UpdateFunctionConfigurationRequest,
 } from "@aws-sdk/client-lambda";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { sleep } from "../helpers.js";
-
-/**
- * Default deployment package (Salesforce file-notifier-for-blob-store).
- * Override with env `UDLO_LAMBDA_ZIP_URL` or the `lambdaZipUrl` argument to `ensureLambda`.
- */
-export const DEFAULT_LAMBDA_ZIP_URL =
-  "https://raw.githubusercontent.com/forcedotcom/file-notifier-for-blob-store/main/cloud_function_zips/aws_lambda_function.zip";
 
 const LAMBDA_ZIP_MAX_BYTES = 52 * 1024 * 1024;
 
-export async function fetchLambdaZip(url: string): Promise<Buffer> {
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok) {
-    const snippet = await res.text().catch(() => "");
+/** Load a deployment package from disk (absolute path or relative to `process.cwd()`). */
+export function loadLambdaZipFromPath(pathStr: string): Buffer {
+  const trimmed = pathStr.trim();
+  const resolved = isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
+  if (!existsSync(resolved)) {
+    throw new Error(`Lambda zip not found: ${resolved}`);
+  }
+  const st = statSync(resolved);
+  if (!st.isFile()) {
+    throw new Error(`Lambda zip path is not a file: ${resolved}`);
+  }
+  if (st.size > LAMBDA_ZIP_MAX_BYTES) {
+    throw new Error(`Lambda zip (${st.size} bytes) exceeds direct-upload limit (${LAMBDA_ZIP_MAX_BYTES}).`);
+  }
+  return readFileSync(resolved);
+}
+
+/**
+ * Lambda deployment package from env `UDLO_LAMBDA_ZIP_PATH` (required for `sf udlo setup`).
+ * Download the official ZIP from Salesforce’s file-notifier-for-blob-store repo or run `npm run lambda:zip`.
+ */
+export function loadLambdaZipFromEnv(): Buffer {
+  const fromPath = process.env.UDLO_LAMBDA_ZIP_PATH?.trim();
+  if (!fromPath) {
     throw new Error(
-      `Failed to download Lambda deployment package (${res.status} ${res.statusText}): ${url}` +
-        (snippet ? `\n${snippet.slice(0, 500)}` : ""),
+      "UDLO_LAMBDA_ZIP_PATH must be set to a local .zip file path before deploying Lambda. " +
+        "Download aws_lambda_function.zip from https://github.com/forcedotcom/file-notifier-for-blob-store " +
+        "or run: npm run lambda:zip",
     );
   }
-  const len = res.headers.get("content-length");
-  if (len && Number(len) > LAMBDA_ZIP_MAX_BYTES) {
-    throw new Error(
-      `Lambda zip Content-Length (${len} bytes) exceeds direct-upload limit; use a smaller package or S3-based deployment.`,
-    );
-  }
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.byteLength > LAMBDA_ZIP_MAX_BYTES) {
-    throw new Error(
-      `Downloaded Lambda zip (${buf.byteLength} bytes) exceeds direct-upload limit for CreateFunction/UpdateFunctionCode.`,
-    );
-  }
-  return buf;
+  return loadLambdaZipFromPath(fromPath);
 }
 
 async function waitForLambdaActive(lambdaClient: LambdaClient, functionName: string): Promise<void> {
@@ -59,17 +65,48 @@ async function waitForLambdaActive(lambdaClient: LambdaClient, functionName: str
   throw new Error(`Lambda ${functionName} did not become active in time`);
 }
 
+/** UpdateFunctionConfiguration fails if code/config updates are still in progress; retry after waiting. */
+async function sendUpdateFunctionConfigurationWithRetry(
+  lambdaClient: LambdaClient,
+  input: UpdateFunctionConfigurationRequest,
+): Promise<void> {
+  const name = input.FunctionName;
+  if (!name) {
+    throw new Error("UpdateFunctionConfiguration requires FunctionName");
+  }
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      await lambdaClient.send(new UpdateFunctionConfigurationCommand(input));
+      return;
+    } catch (e) {
+      if (e instanceof ResourceConflictException) {
+        await sleep(3000);
+        await waitForLambdaActive(lambdaClient, name);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error(`Lambda ${name}: UpdateFunctionConfiguration still conflicted after retries`);
+}
+
+/**
+ * Stock file-notifier handler uses `SF_LOGIN_URL` only to build `/services/oauth2/token`.
+ * That URL must match JWT `aud` — both are the OAuth host (`login` or `test`), not My Domain.
+ * The token response supplies `instance_url` for org-specific calls afterward.
+ */
 function envConfig(
-  sfLoginUrl: string,
+  sfOauthBaseUrl: string,
   sfUsername: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
 ) {
+  const base = sfOauthBaseUrl.replace(/\/+$/, "");
   return {
     Variables: {
-      SF_LOGIN_URL: sfLoginUrl,
+      SF_LOGIN_URL: base,
+      SF_AUDIENCE_URL: base,
       SF_USERNAME: sfUsername,
-      SF_AUDIENCE_URL: sfLoginUrl,
       RSA_PRIVATE_KEY: rsaKeySecretName,
       CONSUMER_KEY: consumerKeySecretName,
     },
@@ -80,31 +117,35 @@ export async function ensureLambda(
   lambdaClient: LambdaClient,
   functionName: string,
   roleArn: string,
-  sfLoginUrl: string,
+  /**
+   * `https://login.salesforce.com` or `https://test.salesforce.com` (no trailing slash).
+   * Written to `SF_LOGIN_URL` and `SF_AUDIENCE_URL` so JWT `aud` and the token POST stay aligned.
+   */
+  sfOauthBaseUrl: string,
   sfUsername: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
-  lambdaZipUrl: string = process.env.UDLO_LAMBDA_ZIP_URL ?? DEFAULT_LAMBDA_ZIP_URL,
 ): Promise<string> {
-  const zipBuffer = await fetchLambdaZip(lambdaZipUrl);
-  const environment = envConfig(sfLoginUrl, sfUsername, consumerKeySecretName, rsaKeySecretName);
+  const zipBuffer = loadLambdaZipFromEnv();
+  const environment = envConfig(sfOauthBaseUrl, sfUsername, consumerKeySecretName, rsaKeySecretName);
 
   try {
     await lambdaClient.send(new GetFunctionCommand({ FunctionName: functionName }));
+    // Do not overlap Lambda updates: wait for any in-flight change, then code, then config.
+    await waitForLambdaActive(lambdaClient, functionName);
     await lambdaClient.send(
       new UpdateFunctionCodeCommand({
         FunctionName: functionName,
         ZipFile: zipBuffer,
       }),
     );
-    await lambdaClient.send(
-      new UpdateFunctionConfigurationCommand({
-        FunctionName: functionName,
-        Handler: "unstructured_data.s3_events_handler",
-        Timeout: 60,
-        Environment: environment,
-      }),
-    );
+    await waitForLambdaActive(lambdaClient, functionName);
+    await sendUpdateFunctionConfigurationWithRetry(lambdaClient, {
+      FunctionName: functionName,
+      Handler: "unstructured_data.s3_events_handler",
+      Timeout: 60,
+      Environment: environment,
+    });
   } catch (e) {
     if (!(e instanceof ResourceNotFoundException)) {
       throw e;

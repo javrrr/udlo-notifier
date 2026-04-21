@@ -5,6 +5,13 @@ import { URL } from "node:url";
 const REDIRECT_URI = "http://localhost:1717/OauthRedirect";
 /** Optional: set to complete the authorization_code → token exchange and validate the app. */
 const CLIENT_SECRET_ENV = "SF_UDLO_CLIENT_SECRET";
+/**
+ * Scopes sent on the /authorize URL only. Omitting `scope` makes Salesforce request every
+ * scope on the Connected App, which can trigger OAUTH_CODE_CRED_SCOPE_TOO_LONG for CDP-heavy apps.
+ * JWT for Lambda still uses the app’s full configured scopes at token time.
+ */
+const PREAUTH_SCOPE_ENV = "UDLO_OAUTH_PREAUTH_SCOPE";
+const DEFAULT_PREAUTH_SCOPE = "api refresh_token";
 
 const OAUTH_TIMEOUT_MS = 300_000;
 
@@ -133,9 +140,11 @@ async function exchangeCodeForTokens(
 
 export async function authorizeConnectedApp(loginUrl: string, consumerKey: string): Promise<void> {
   const base = loginUrl.replace(/\/+$/, "");
+  const scope = process.env[PREAUTH_SCOPE_ENV] ?? DEFAULT_PREAUTH_SCOPE;
   const authUrl =
     `${base}/services/oauth2/authorize?response_type=code&client_id=${encodeURIComponent(consumerKey)}` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&scope=${encodeURIComponent(scope)}`;
 
   const code = await waitForAuthorizationCode(authUrl);
   await exchangeCodeForTokens(base, consumerKey, code);

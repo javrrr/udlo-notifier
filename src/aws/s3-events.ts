@@ -11,8 +11,13 @@ import {
   ResourceConflictException,
 } from "@aws-sdk/client-lambda";
 
-function prefixFilter(directory: string): LambdaFunctionConfiguration["Filter"] {
-  const prefix = directory.endsWith("/") ? directory : `${directory}/`;
+/** No filter → S3 delivers all object-created events for the bucket to this Lambda. */
+function prefixFilter(directory: string): LambdaFunctionConfiguration["Filter"] | undefined {
+  const d = directory.trim();
+  if (d === "") {
+    return undefined;
+  }
+  const prefix = d.endsWith("/") ? d : `${d}/`;
   return {
     Key: {
       FilterRules: [{ Name: "prefix", Value: prefix }],
@@ -20,26 +25,11 @@ function prefixFilter(directory: string): LambdaFunctionConfiguration["Filter"] 
   };
 }
 
-function notificationAlreadyExists(
-  existing: LambdaFunctionConfiguration[] | undefined,
-  lambdaFunctionArn: string,
-  directory: string,
-): boolean {
-  const wantPrefix = (directory.endsWith("/") ? directory : `${directory}/`).toLowerCase();
-  for (const cfg of existing ?? []) {
-    if (cfg.LambdaFunctionArn !== lambdaFunctionArn) {
-      continue;
-    }
-    const rules = cfg.Filter?.Key?.FilterRules ?? [];
-    for (const r of rules) {
-      if (r.Name === "prefix" && (r.Value ?? "").toLowerCase() === wantPrefix) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
+/**
+ * S3 rejects the whole notification if two Lambda rules use the same event types and their
+ * prefix/suffix filters overlap. Multiple rules for the *same* destination (e.g. whole bucket
+ * from an earlier setup plus a prefix rule) always overlap — keep at most one rule per Lambda ARN.
+ */
 export async function configureS3Events(
   s3Client: S3Client,
   lambdaClient: LambdaClient,
@@ -68,28 +58,42 @@ export async function configureS3Events(
   }
 
   const current = await s3Client.send(new GetBucketNotificationConfigurationCommand({ Bucket: bucket }));
-  const lambdaConfigs = [...(current.LambdaFunctionConfigurations ?? [])];
-
-  if (!notificationAlreadyExists(lambdaConfigs, lambdaFunctionArn, directory)) {
-    lambdaConfigs.push({
-      LambdaFunctionArn: lambdaFunctionArn,
-      Events: ["s3:ObjectCreated:*"],
-      Filter: prefixFilter(directory),
-    });
-  }
+  const filter = prefixFilter(directory);
+  const newRule: LambdaFunctionConfiguration = {
+    LambdaFunctionArn: lambdaFunctionArn,
+    Events: ["s3:ObjectCreated:*"],
+    ...(filter ? { Filter: filter } : {}),
+  };
+  const lambdaConfigs = (current.LambdaFunctionConfigurations ?? []).filter(
+    (c) => c.LambdaFunctionArn !== lambdaFunctionArn,
+  );
+  lambdaConfigs.push(newRule);
 
   const merged: NotificationConfiguration = {
     ...current,
     LambdaFunctionConfigurations: lambdaConfigs,
   };
 
-  await s3Client.send(
-    new PutBucketNotificationConfigurationCommand({
-      Bucket: bucket,
-      NotificationConfiguration: merged,
-      SkipDestinationValidation: true,
-    }),
-  );
+  try {
+    await s3Client.send(
+      new PutBucketNotificationConfigurationCommand({
+        Bucket: bucket,
+        NotificationConfiguration: merged,
+        SkipDestinationValidation: true,
+      }),
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    if (/InvalidArgument|overlapping suffixes|ambiguously defined/i.test(msg)) {
+      throw new Error(
+        `${msg}\n` +
+          "Another Lambda (or SQS/SNS) notification on this bucket uses overlapping prefix/suffix filters " +
+          "for the same object events. Remove or narrow the conflicting rule in the S3 console " +
+          "(Event notifications), or use a dedicated bucket for this pipeline.",
+      );
+    }
+    throw e;
+  }
 }
 
 export async function removeS3Events(

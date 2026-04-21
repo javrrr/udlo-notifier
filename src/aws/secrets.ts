@@ -10,6 +10,11 @@ import {
   type SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 
+/** PEM as a single SecretString (matches `cat keypair.pem`); normalize line endings and strip UTF-8 BOM. */
+function normalizePemForSecret(raw: string): string {
+  return raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 async function describeSecretArn(smClient: SecretsManagerClient, secretId: string): Promise<string> {
   const d = await smClient.send(new DescribeSecretCommand({ SecretId: secretId }));
   if (!d.ARN) {
@@ -81,9 +86,13 @@ export async function ensureSecrets(
   lambdaRoleArn: string,
   _awsAccountId: string,
 ): Promise<{ consumerKeySecretArn: string; rsaKeySecretArn: string }> {
-  const pem = readFileSync(pemFilePath, "utf-8");
+  const consumerKeyPlain = consumerKey.trim();
+  if (!consumerKeyPlain) {
+    throw new Error("Consumer key is empty; check Connected App metadata and setup state.");
+  }
+  const pem = normalizePemForSecret(readFileSync(pemFilePath, "utf-8"));
 
-  const consumerKeySecretArn = await ensureSecretString(smClient, consumerKeySecretName, consumerKey);
+  const consumerKeySecretArn = await ensureSecretString(smClient, consumerKeySecretName, consumerKeyPlain);
   const rsaKeySecretArn = await ensureSecretString(smClient, rsaKeySecretName, pem);
 
   await attachLambdaGetSecretPolicy(smClient, consumerKeySecretArn, lambdaRoleArn);

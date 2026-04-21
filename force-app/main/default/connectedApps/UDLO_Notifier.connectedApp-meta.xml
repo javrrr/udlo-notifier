@@ -16,7 +16,7 @@
     <scopes>CDPProfile</scopes>
   </oauthConfig>
   <oauthPolicy>
-    <ipRelaxation>ENFORCE</ipRelaxation>
+    <ipRelaxation>BYPASS</ipRelaxation>
     <isTokenExchangeFlowEnabled>true</isTokenExchangeFlowEnabled>
     <refreshTokenPolicy>infinite</refreshTokenPolicy>
   </oauthPolicy>

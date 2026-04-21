@@ -12,9 +12,22 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "bin", "force-app", "sfdx-project.json", "README.md"],
+  "files": [
+    "dist",
+    "bin",
+    "force-app",
+    "sfdx-project.json",
+    "s3",
+    "scripts/package-lambda.mjs",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "s3": "bash s3/spinup.sh",
+    "s3:spinup": "bash s3/spinup.sh",
+    "s3:user-policy": "bash s3/deploy-user-policy.sh",
+    "s3:role": "bash s3/deploy-role.sh",
+    "lambda:zip": "node scripts/package-lambda.mjs",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,13 +39,13 @@
     "topicSeparator": " "
   },
   "dependencies": {
-    "@oclif/core": "^4.8.3",
-    "data-360-sdk": "^0.2.3",
     "@aws-sdk/client-iam": "^3.700.0",
     "@aws-sdk/client-lambda": "^3.700.0",
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/client-secrets-manager": "^3.700.0",
-    "@aws-sdk/client-sts": "^3.700.0"
+    "@aws-sdk/client-sts": "^3.700.0",
+    "@oclif/core": "^4.8.3",
+    "data-360-sdk": "^0.2.3"
   },
   "devDependencies": {
     "@salesforce/core": "^8.26.3",

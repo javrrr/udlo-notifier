@@ -19,8 +19,8 @@ function deploymentSuffix(state: PipelineState): string {
   return uniqueSuffix();
 }
 
-function normalizeDirectory(dir: string): string {
-  return dir.replace(/^\/+|\/+$/g, "");
+function normalizeDirectory(dir: string | undefined): string {
+  return (dir ?? "").replace(/^\/+|\/+$/g, "");
 }
 
 export default class Setup extends Command {
@@ -38,8 +38,9 @@ export default class Setup extends Command {
     }),
     directory: Flags.string({
       char: "d",
-      description: "Folder path within the S3 bucket (no leading/trailing slashes)",
-      required: true,
+      description:
+        "S3 key prefix within the bucket (no leading/trailing slashes). Omit or pass empty for bucket root.",
+      default: "",
     }),
     "object-name": Flags.string({
       char: "n",
@@ -56,6 +57,11 @@ export default class Setup extends Command {
     }),
     "auto-approve": Flags.boolean({
       description: "Skip confirmation prompts (e.g. OAuth browser step)",
+    }),
+    "refresh-connected-app": Flags.boolean({
+      description:
+        "Redeploy UDLO_Notifier Connected App metadata (e.g. after policy/certificate template changes). " +
+        "Use once if Lambda JWT returns 400 and the org still has strict IP policies on the app.",
     }),
   };
 
@@ -77,6 +83,12 @@ export default class Setup extends Command {
     const { readState, updateState } = await import("../../state.js");
     const state = readState(cwd);
 
+    this.log("\n── AWS credentials ──");
+    const { verifyAwsCredentials } = await import("../../aws/credentials.js");
+    const { accountId } = await verifyAwsCredentials(aws.sts);
+    updateState(cwd, { awsAccountId: accountId, awsRegion: flags["aws-region"] });
+    this.log(`  Account: ${accountId}`);
+
     this.log("\n── RSA Keys ──");
     const { ensureKeyPair } = await import("../../salesforce/keys.js");
     const { pemPath, crtPath } = ensureKeyPair(join(pluginRoot, "keys"));
@@ -84,15 +96,8 @@ export default class Setup extends Command {
 
     this.log("\n── Connected App ──");
     const { findExistingConnectedApp, deployConnectedApp } = await import("../../salesforce/connected-app.js");
-    let consumerKey = state.consumerKey ?? (await findExistingConnectedApp(conn, pluginRoot));
-    if (consumerKey) {
-      this.log(`  Reusing consumer key: ${consumerKey.slice(0, 12)}…`);
-      updateState(cwd, { consumerKey });
-    } else {
-      consumerKey = await deployConnectedApp(conn, crtPath, pluginRoot);
-      updateState(cwd, { consumerKey });
-      this.log(`  Deployed. Consumer key: ${consumerKey.slice(0, 12)}…`);
 
+    const runOAuthIfNeeded = async (key: string): Promise<void> => {
       this.log("\n── OAuth authorization ──");
       const { authorizeConnectedApp } = await import("../../salesforce/oauth.js");
       const loginBase = conn.instanceUrl.replace(/\/+$/, "");
@@ -103,10 +108,31 @@ export default class Setup extends Command {
             "Skipped OAuth. Complete authorization later or JWT-based Lambda calls may fail until the app is allowed for your user.",
           );
         } else {
-          await authorizeConnectedApp(loginBase, consumerKey);
+          await authorizeConnectedApp(loginBase, key);
         }
       } else {
-        await authorizeConnectedApp(loginBase, consumerKey);
+        await authorizeConnectedApp(loginBase, key);
+      }
+    };
+
+    let consumerKey: string;
+    if (flags["refresh-connected-app"]) {
+      this.log("  Redeploying Connected App (metadata + certificate from keys/)…");
+      consumerKey = await deployConnectedApp(conn, crtPath, pluginRoot);
+      updateState(cwd, { consumerKey });
+      this.log(`  Consumer key: ${consumerKey.slice(0, 12)}…`);
+      await runOAuthIfNeeded(consumerKey);
+    } else {
+      const existing = state.consumerKey ?? (await findExistingConnectedApp(conn, pluginRoot));
+      if (existing) {
+        consumerKey = existing;
+        this.log(`  Reusing consumer key: ${consumerKey.slice(0, 12)}…`);
+        updateState(cwd, { consumerKey });
+      } else {
+        consumerKey = await deployConnectedApp(conn, crtPath, pluginRoot);
+        updateState(cwd, { consumerKey });
+        this.log(`  Deployed. Consumer key: ${consumerKey.slice(0, 12)}…`);
+        await runOAuthIfNeeded(consumerKey);
       }
     }
 
@@ -127,12 +153,6 @@ export default class Setup extends Command {
     );
     updateState(cwd, { udloName, udmoName });
     this.log(`  UDLO: ${udloName} (DMO name tracked as ${udmoName})`);
-
-    this.log("\n── AWS credentials ──");
-    const { verifyAwsCredentials } = await import("../../aws/credentials.js");
-    const { accountId } = await verifyAwsCredentials(aws.sts);
-    updateState(cwd, { awsAccountId: accountId, awsRegion: flags["aws-region"] });
-    this.log(`  Account: ${accountId}`);
 
     const suffix = deploymentSuffix(state);
 
@@ -167,12 +187,13 @@ export default class Setup extends Command {
     this.log("\n── Lambda function ──");
     const { ensureLambda } = await import("../../aws/lambda.js");
     const functionName = state.lambdaFunctionName ?? `udlo-notifier-${suffix}-fn`;
-    const sfLoginBase = conn.instanceUrl.replace(/\/+$/, "");
+    const sfOauthBaseUrl =
+      process.env.UDLO_SF_JWT_AUDIENCE?.trim() || conn.jwtAudienceUrl;
     const functionArn = await ensureLambda(
       aws.lambda,
       functionName,
       roleArn,
-      sfLoginBase,
+      sfOauthBaseUrl,
       conn.username,
       consumerKeySecretName,
       rsaKeySecretName,

@@ -12,7 +12,8 @@ An **sf CLI plugin** that automates setup of an **S3 → Salesforce Data Cloud**
 | **Salesforce CLI** | `sf` with a logged-in org (`sf org login web` or similar) |
 | **AWS credentials** | Environment variables, shared credentials file, or `AWS_PROFILE` — whatever the AWS SDK v3 picks up |
 | **OpenSSL** | Used locally to mint the X.509 cert for the Connected App (`openssl` on `PATH`) |
-| **Network** | Lambda deployment downloads a ZIP from GitHub (see below) |
+| **Lambda ZIP** | Set **`UDLO_LAMBDA_ZIP_PATH`** to a local `.zip` before `sf udlo setup` (see below) |
+| **Data Cloud → S3** | The plugin expects an existing S3 connection. To attach AWS IAM first, use **`s3/`** via **`npm run s3:user-policy -- --user <iam-user> --bucket <bucket>`** (note the `--` before flags) or see `s3/README.md`. |
 
 ## Install (development)
 
@@ -34,7 +35,7 @@ sf udlo --help
 
 | Command | Purpose |
 |---------|---------|
-| `sf udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → S3 connection → UDLO → AWS (STS, IAM, Secrets, Lambda from [official ZIP](https://github.com/forcedotcom/file-notifier-for-blob-store)) → S3 notifications. Writes `.udlo-state.json` in the **current working directory**. |
+| `sf udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → S3 connection → UDLO → AWS (STS, IAM, Secrets, Lambda from local **`UDLO_LAMBDA_ZIP_PATH`**) → S3 notifications. Writes `.udlo-state.json` in the **current working directory**. |
 | `sf udlo teardown` | Removes S3 notifications, Lambda, secrets, IAM role; optionally deletes the UDLO; clears state. Does **not** delete the Connected App. |
 | `sf udlo status` | Reads `.udlo-state.json` and probes Salesforce + AWS resources. |
 
@@ -46,7 +47,7 @@ sf udlo status -o myOrg
 sf udlo teardown -o myOrg --auto-approve
 ```
 
-Flags: run `sf udlo setup --help` (required: `--bucket`, `--directory`, `--object-name`).
+Flags: run `sf udlo setup --help` (required: `--bucket`, `--object-name`; `--directory` defaults to bucket root).
 
 ## End-to-end preflight (Salesforce + keys + Connected App + Data 360 probe)
 
@@ -63,16 +64,30 @@ Environment knobs:
 | `UDLO_E2E_SKIP_DATA360` | Set to `1` to skip the Data 360 `connections.list` check |
 | `UDLO_E2E_FORCE_DEPLOY` | Set to `1` to redeploy the Connected App even if it already exists |
 
+## Data Cloud S3 (IAM before `sf udlo setup`)
+
+```bash
+npm run s3:spinup -- help
+npm run s3:user-policy -- --user my-iam-user --bucket my-s3-bucket
+```
+
+npm treats leading `-` / `--` as its own options unless you insert **`--`** before your script flags. See `s3/README.md`.
+
 ## AWS Lambda deployment package
 
-The plugin **does not** zip a local `aws_lambda_function/` tree for upload. It downloads a **published ZIP** from Salesforce’s reference repo and uploads it to Lambda.
+**Required:** set **`UDLO_LAMBDA_ZIP_PATH`** to a local `.zip` on disk before running **`sf udlo setup`**. Download the published package from Salesforce’s [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store) (`cloud_function_zips/aws_lambda_function.zip`), or **build your own** from `aws_lambda_function/` (requires the `zip` CLI):
+
+```bash
+npm run lambda:zip
+export UDLO_LAMBDA_ZIP_PATH="$PWD/dist/lambda-local.zip"
+npm run build && sf udlo setup …
+```
 
 | Item | Value |
-|------|--------|
-| **Default ZIP URL** | `https://raw.githubusercontent.com/forcedotcom/file-notifier-for-blob-store/main/cloud_function_zips/aws_lambda_function.zip` |
-| **Override** | Set `UDLO_LAMBDA_ZIP_URL` to any HTTPS URL that returns a Lambda deployment package, or pass `lambdaZipUrl` into `ensureLambda()` in code |
-| **Runtime** | **Python 3.11** — matches how Salesforce builds that ZIP (`pyenv` + Python **3.11.4** in their [`dev-help.txt`](https://github.com/forcedotcom/file-notifier-for-blob-store/blob/main/dev-help.txt)) |
-| **Handler** | `unstructured_data.s3_events_handler` (must match the contents of the ZIP) |
+|------|-------|
+| **`UDLO_LAMBDA_ZIP_PATH`** | **Required.** Local path to the Lambda deployment `.zip` (absolute or relative to the shell cwd when you run `sf`). |
+| **Runtime** | **Python 3.11** |
+| **Handler** | `unstructured_data.s3_events_handler` (must match the ZIP layout) |
 
 If Lambda creation fails with handler or runtime errors, compare with the [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store) AWS function sources under `aws/` in that repository.
 
@@ -87,7 +102,7 @@ If Lambda creation fails with handler or runtime errors, compare with the [file-
 ```
 src/
   auth/sf-auth.ts           # resolveConnection() — lazy @salesforce/core
-  aws/                      # STS, IAM role, Secrets Manager, Lambda (zip URL), S3 notifications
+  aws/                      # STS, IAM role, Secrets Manager, Lambda (zip from UDLO_LAMBDA_ZIP_PATH), S3 notifications
   data-cloud/               # Data360Client factory, S3 connection lookup, UDLO helpers
   salesforce/               # RSA keys, Connected App deploy/retrieve, OAuth callback on :1717
   state.ts                  # .udlo-state.json

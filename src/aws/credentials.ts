@@ -12,8 +12,13 @@ export async function verifyAwsCredentials(stsClient: STSClient): Promise<{ acco
   } catch (e) {
     if (e instanceof Error && e.name === "CredentialsProviderError") {
       throw new Error(
-        "AWS credentials are missing or invalid. Configure AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, " +
-          "or run `aws sso login`, or set AWS_PROFILE before running this command.",
+        "AWS credentials are missing or invalid. The SDK could not load any credential source.\n" +
+          "  • Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (and AWS_SESSION_TOKEN if using temporary keys), or\n" +
+          "  • Use a profile: export AWS_PROFILE=your-profile (then `aws sso login` or `aws login` for that profile if needed), or\n" +
+          "  • If credentials live only in ~/.aws/config, try: export AWS_SDK_LOAD_CONFIG=1\n" +
+          "  • Verify with: aws sts get-caller-identity --region <same-region-as---aws-region>\n" +
+          "Original: " +
+          e.message,
       );
     }
     throw new Error(
