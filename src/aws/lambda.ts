@@ -1,7 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   CreateFunctionCommand,
   DeleteFunctionCommand,
@@ -14,19 +10,37 @@ import {
 } from "@aws-sdk/client-lambda";
 import { sleep } from "../helpers.js";
 
-function zipLambdaBundle(pluginRoot: string): Buffer {
-  const workDir = mkdtempSync(join(tmpdir(), "udlo-lambda-zip-"));
-  const zipPath = join(workDir, "function.zip");
-  const lambdaDir = join(pluginRoot, "aws_lambda_function");
-  try {
-    execFileSync("zip", ["-q", "-r", zipPath, ".", "-x", "*.git*", "-x", "*__pycache__/*"], {
-      cwd: lambdaDir,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return readFileSync(zipPath);
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
+/**
+ * Default deployment package (Salesforce file-notifier-for-blob-store).
+ * Override with env `UDLO_LAMBDA_ZIP_URL` or the `lambdaZipUrl` argument to `ensureLambda`.
+ */
+export const DEFAULT_LAMBDA_ZIP_URL =
+  "https://raw.githubusercontent.com/forcedotcom/file-notifier-for-blob-store/main/cloud_function_zips/aws_lambda_function.zip";
+
+const LAMBDA_ZIP_MAX_BYTES = 52 * 1024 * 1024;
+
+export async function fetchLambdaZip(url: string): Promise<Buffer> {
+  const res = await fetch(url, { redirect: "follow" });
+  if (!res.ok) {
+    const snippet = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to download Lambda deployment package (${res.status} ${res.statusText}): ${url}` +
+        (snippet ? `\n${snippet.slice(0, 500)}` : ""),
+    );
   }
+  const len = res.headers.get("content-length");
+  if (len && Number(len) > LAMBDA_ZIP_MAX_BYTES) {
+    throw new Error(
+      `Lambda zip Content-Length (${len} bytes) exceeds direct-upload limit; use a smaller package or S3-based deployment.`,
+    );
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.byteLength > LAMBDA_ZIP_MAX_BYTES) {
+    throw new Error(
+      `Downloaded Lambda zip (${buf.byteLength} bytes) exceeds direct-upload limit for CreateFunction/UpdateFunctionCode.`,
+    );
+  }
+  return buf;
 }
 
 async function waitForLambdaActive(lambdaClient: LambdaClient, functionName: string): Promise<void> {
@@ -70,9 +84,9 @@ export async function ensureLambda(
   sfUsername: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
-  pluginRoot: string,
+  lambdaZipUrl: string = process.env.UDLO_LAMBDA_ZIP_URL ?? DEFAULT_LAMBDA_ZIP_URL,
 ): Promise<string> {
-  const zipBuffer = zipLambdaBundle(pluginRoot);
+  const zipBuffer = await fetchLambdaZip(lambdaZipUrl);
   const environment = envConfig(sfLoginUrl, sfUsername, consumerKeySecretName, rsaKeySecretName);
 
   try {
