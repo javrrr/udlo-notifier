@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.udlo-state.json
+keys/
+.DS_Store
+PLAN.md
+
+# SF Directories
+/aws_lambda_function
+/force-app
+/sfdx-project.json
