@@ -45,3 +45,7 @@ export function updateState(dir: string, partial: Partial<PipelineState>): Pipel
   writeState(dir, next);
   return next;
 }
+
+export function clearState(dir: string): void {
+  writeState(dir, {});
+}

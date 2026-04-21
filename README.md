@@ -2,7 +2,7 @@
 
 An **sf CLI plugin** that automates setup of an **S3 → Salesforce Data Cloud** unstructured file pipeline (UDLO path): Connected App + JWT, Data Cloud connections and lake objects, AWS Lambda, Secrets Manager, and S3 event notifications.
 
-Orchestration in `sf udlo setup` / `teardown` / `status` is still being wired (see `PLAN.md` Phase 5). The **library modules** for Salesforce auth, Data Cloud (`data-360-sdk`), Connected App deploy, AWS IAM/Lambda/Secrets/S3, and state in `.udlo-state.json` are already in place.
+`sf udlo setup`, `teardown`, and `status` orchestrate the pipeline end-to-end (see `PLAN.md` Phase 5). Supporting modules cover Salesforce auth, Data Cloud (`data-360-sdk`), Connected App deploy, AWS IAM/Lambda/Secrets/S3, and `.udlo-state.json`.
 
 ## Prerequisites
 
@@ -32,13 +32,21 @@ sf udlo --help
 
 ## Commands
 
-| Command | Status |
-|---------|--------|
-| `sf udlo setup` | Stub — full orchestration in `PLAN.md` Phase 5 |
-| `sf udlo teardown` | Stub |
-| `sf udlo status` | Stub |
+| Command | Purpose |
+|---------|---------|
+| `sf udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → S3 connection → UDLO → AWS (STS, IAM, Secrets, Lambda from [official ZIP](https://github.com/forcedotcom/file-notifier-for-blob-store)) → S3 notifications. Writes `.udlo-state.json` in the **current working directory**. |
+| `sf udlo teardown` | Removes S3 notifications, Lambda, secrets, IAM role; optionally deletes the UDLO; clears state. Does **not** delete the Connected App. |
+| `sf udlo status` | Reads `.udlo-state.json` and probes Salesforce + AWS resources. |
 
-Until Phase 5 lands, use the **modules** under `src/` from tests, scripts, or a small driver (see `scripts/e2e-preflight.mjs`).
+Examples:
+
+```bash
+sf udlo setup -o myOrg -b my-bucket -d path/to/files -n MyDocuments
+sf udlo status -o myOrg
+sf udlo teardown -o myOrg --auto-approve
+```
+
+Flags: run `sf udlo setup --help` (required: `--bucket`, `--directory`, `--object-name`).
 
 ## End-to-end preflight (Salesforce + keys + Connected App + Data 360 probe)
 

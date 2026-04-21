@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readState, updateState, writeState, type PipelineState } from "../src/state.js";
+import { clearState, readState, updateState, writeState, type PipelineState } from "../src/state.js";
 
 describe("state", () => {
   let dir: string;
@@ -31,5 +31,12 @@ describe("state", () => {
     const merged = updateState(dir, { udmoName: "B" });
     expect(merged).toEqual({ udloName: "A", udmoName: "B" });
     expect(readState(dir)).toEqual({ udloName: "A", udmoName: "B" });
+  });
+
+  it("clearState resets file to empty object", () => {
+    dir = mkdtempSync(join(tmpdir(), "udlo-state-"));
+    writeState(dir, { udloName: "X" });
+    clearState(dir);
+    expect(readState(dir)).toEqual({});
   });
 });
