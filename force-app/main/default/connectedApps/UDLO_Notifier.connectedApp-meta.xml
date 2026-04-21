@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ConnectedApp xmlns="http://soap.sforce.com/2006/04/metadata">
+  <contactEmail>udlo-notifier@example.com</contactEmail>
+  <label>UDLO Notifier</label>
+  <oauthConfig>
+    <callbackUrl>http://localhost:1717/OauthRedirect</callbackUrl>
+    <certificate>__CERTIFICATE_PEM__</certificate>
+    <isAdminApproved>false</isAdminApproved>
+    <isConsumerSecretOptional>false</isConsumerSecretOptional>
+    <isNamedUserJwtEnabled>true</isNamedUserJwtEnabled>
+    <isSecretRequiredForRefreshToken>true</isSecretRequiredForRefreshToken>
+    <scopes>Api</scopes>
+    <scopes>RefreshToken</scopes>
+    <scopes>CDPIngest</scopes>
+    <scopes>CDPQuery</scopes>
+    <scopes>CDPProfile</scopes>
+  </oauthConfig>
+  <oauthPolicy>
+    <ipRelaxation>ENFORCE</ipRelaxation>
+    <isTokenExchangeFlowEnabled>true</isTokenExchangeFlowEnabled>
+    <refreshTokenPolicy>infinite</refreshTokenPolicy>
+  </oauthPolicy>
+</ConnectedApp>
