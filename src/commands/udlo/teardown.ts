@@ -9,7 +9,7 @@ export default class Teardown extends Command {
     "target-org": Flags.string({ char: "o", description: "Salesforce org alias or username" }),
     "aws-region": Flags.string({ description: "AWS region", default: "us-east-1" }),
     "aws-profile": Flags.string({
-      description: "AWS named profile; optional. Overrides .udlo-state.json awsProfile when set.",
+      description: "AWS named profile; optional. Overrides saved awsProfile in `.udlo-notifier/state.json`.",
     }),
     "auto-approve": Flags.boolean({ description: "Skip confirmation prompts" }),
   };
@@ -18,7 +18,7 @@ export default class Teardown extends Command {
     const { flags } = await this.parse(Teardown);
     const cwd = process.cwd();
 
-    const { readState, clearState } = await import("../../state.js");
+    const { readState, removeUdloWorkspace } = await import("../../state.js");
     const state = readState(cwd);
     const hasAws =
       Boolean(state.lambdaFunctionArn) ||
@@ -27,7 +27,9 @@ export default class Teardown extends Command {
       Boolean(state.consumerKeySecretName) ||
       Boolean(state.s3Bucket);
     if (!hasAws && !state.udloName) {
-      this.error("No .udlo-state.json or nothing to tear down (need Lambda/S3/role/secrets or UDLO in state).");
+      this.error(
+        "No `.udlo-notifier` state or nothing to tear down (need Lambda/S3/role/secrets or UDLO in state).",
+      );
     }
 
     if (!flags["auto-approve"]) {
@@ -97,7 +99,7 @@ export default class Teardown extends Command {
     this.log("\n── Connected App ──");
     this.log("  Left in place (UDLO_Notifier). Remove from Setup > App Manager if you no longer need it.");
 
-    clearState(cwd);
-    this.log("\n── Cleared .udlo-state.json ──");
+    removeUdloWorkspace(cwd);
+    this.log("\n── Removed `.udlo-notifier/` workspace (state + local keys) ──");
   }
 }

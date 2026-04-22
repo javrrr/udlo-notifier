@@ -99,7 +99,7 @@ export default class Setup extends Command {
     }),
     "aws-profile": Flags.string({
       description:
-        "AWS named profile (~/.aws/credentials). Optional; default credential chain if omitted. Saved in state for teardown/status.",
+        "AWS named profile (~/.aws/credentials). Optional; default credential chain if omitted. Saved in `.udlo-notifier/state.json` for teardown/status.",
     }),
     "auto-approve": Flags.boolean({
       description: "Skip confirmation prompts (e.g. OAuth browser step)",
@@ -123,7 +123,7 @@ export default class Setup extends Command {
     const { createData360Client } = await import("../../data-cloud/client.js");
     const client = createData360Client(conn);
 
-    const { readState, updateState } = await import("../../state.js");
+    const { keysDir, readState, stateFilePath, udloNotifierDir, updateState } = await import("../../state.js");
     const state = readState(cwd);
 
     const { createAwsClients } = await import("../../aws/clients.js");
@@ -142,7 +142,7 @@ export default class Setup extends Command {
 
     this.log("\n── RSA Keys ──");
     const { ensureKeyPair } = await import("../../salesforce/keys.js");
-    const { pemPath, crtPath } = ensureKeyPair(join(pluginRoot, "keys"));
+    const { pemPath, crtPath } = ensureKeyPair(keysDir(cwd));
     this.log(`  Keys: ${pemPath}`);
 
     this.log("\n── Connected App ──");
@@ -174,7 +174,7 @@ export default class Setup extends Command {
       this.log(`  Consumer key: ${consumerKey.slice(0, 12)}…`);
       await runOAuthIfNeeded(consumerKey);
     } else {
-      const existing = state.consumerKey ?? (await findExistingConnectedApp(conn, pluginRoot));
+      const existing = state.consumerKey ?? (await findExistingConnectedApp(conn));
       if (existing) {
         consumerKey = existing;
         this.log(`  Reusing consumer key: ${consumerKey.slice(0, 12)}…`);
@@ -266,6 +266,7 @@ export default class Setup extends Command {
     this.log(`  S3: s3://${flags.bucket}/${directory}/`);
     this.log(`  UDLO: ${udloName}`);
     this.log(`  Lambda: ${functionName}`);
-    this.log(`  State: ${join(cwd, ".udlo-state.json")}`);
+    this.log(`  Workspace: ${udloNotifierDir(cwd)}`);
+    this.log(`  State: ${stateFilePath(cwd)}`);
   }
 }

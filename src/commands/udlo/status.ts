@@ -5,13 +5,13 @@ function row(label: string, status: string, detail: string): void {
 }
 
 export default class Status extends Command {
-  static override description = "Check health of the UDLO pipeline (from .udlo-state.json)";
+  static override description = "Check health of the UDLO pipeline (from `.udlo-notifier/state.json`)";
 
   static override flags = {
     "target-org": Flags.string({ char: "o", description: "Salesforce org alias or username" }),
     "aws-region": Flags.string({ description: "AWS region", default: "us-east-1" }),
     "aws-profile": Flags.string({
-      description: "AWS named profile; optional. Overrides .udlo-state.json awsProfile when set.",
+      description: "AWS named profile; optional. Overrides saved awsProfile in `.udlo-notifier/state.json`.",
     }),
   };
 
@@ -41,9 +41,7 @@ export default class Status extends Command {
 
     try {
       const { findExistingConnectedApp } = await import("../../salesforce/connected-app.js");
-      const { fileURLToPath } = await import("node:url");
-      const pluginRoot = fileURLToPath(new URL("../../../", import.meta.url));
-      const ck = await findExistingConnectedApp(conn, pluginRoot);
+      const ck = await findExistingConnectedApp(conn);
       row("Connected App", ck ? "OK" : "?", ck ? "UDLO_Notifier (consumer key present)" : "Not found / not queryable");
     } catch {
       row("Connected App", "?", "Could not verify");

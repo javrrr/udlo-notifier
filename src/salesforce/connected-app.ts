@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SfConnection } from "../auth/sf-auth.js";
+import { createRetrieveTempDir } from "../state.js";
 
 const CONNECTED_APP_NAME = "UDLO_Notifier";
 const PLACEHOLDER = "__CERTIFICATE_PEM__";
@@ -43,9 +44,11 @@ function parseConsumerKeyFromConnectedAppXml(xml: string): string | null {
 
 /**
  * Reads the consumer key from retrieved Connected App metadata (Tooling SOQL no longer exposes ConsumerKey).
+ * Retrieve output goes under `.udlo-notifier/` in the DX project so `sf project retrieve --output-dir` stays
+ * inside the Salesforce project root.
  */
-function readConsumerKeyFromOrg(conn: SfConnection, pluginRoot: string): string {
-  const retDir = mkdtempSync(join(pluginRoot, ".udlo-ret-"));
+function readConsumerKeyFromOrg(conn: SfConnection): string {
+  const retDir = createRetrieveTempDir(process.cwd());
   try {
     runSf([
       "project",
@@ -76,10 +79,7 @@ function readConsumerKeyFromOrg(conn: SfConnection, pluginRoot: string): string 
   }
 }
 
-export async function findExistingConnectedApp(
-  conn: SfConnection,
-  pluginRoot: string = process.cwd(),
-): Promise<string | null> {
+export async function findExistingConnectedApp(conn: SfConnection): Promise<string | null> {
   const out = runSf([
     "data",
     "query",
@@ -93,7 +93,7 @@ export async function findExistingConnectedApp(
   if (parseToolingQueryTotalSize(out) < 1) {
     return null;
   }
-  return readConsumerKeyFromOrg(conn, pluginRoot);
+  return readConsumerKeyFromOrg(conn);
 }
 
 function buildInjectedMetadata(pluginRoot: string, crtPath: string): string {
@@ -139,7 +139,7 @@ export async function deployConnectedApp(
     rmSync(packRoot, { recursive: true, force: true });
   }
 
-  return readConsumerKeyFromOrg(conn, pluginRoot);
+  return readConsumerKeyFromOrg(conn);
 }
 
 export async function destroyConnectedApp(conn: SfConnection): Promise<void> {

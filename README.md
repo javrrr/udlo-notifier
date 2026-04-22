@@ -59,7 +59,7 @@ npx udlo-notifier udlo --help
 
 ## Use in another Salesforce / DX project
 
-Pin the tool as a **devDependency** and call the bin from **npm scripts** (run commands from the project root so **`.udlo-state.json`** lands next to your app):
+Pin the tool as a **devDependency** and call the bin from **npm scripts** (run commands from the DX project root so **`.udlo-notifier/`** is created there):
 
 ```json
 {
@@ -75,15 +75,17 @@ Pin the tool as a **devDependency** and call the bin from **npm scripts** (run c
 
 Omit **`-z`** to use the **bundled** stock zip from the package. Pass **`-z path/to.zip`** for a **custom** package: e.g. **`npm run lambda:zip --prefix node_modules/udlo-notifier`** (writes **`node_modules/udlo-notifier/dist/lambda-local.zip`**) or the official artifact from [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store). After **`npm install`**, the **`udlo-notifier`** binary is on `PATH` inside npm scripts.
 
+Run **`udlo-notifier udlo setup`** from the **root of your Salesforce DX project** (where **`sfdx-project.json`** lives). All machine-local artifacts go under **`.udlo-notifier/`**: **`state.json`**, **`keys/`** (RSA material for the Connected App and Lambda), and short-lived **`retrieve-*`** dirs for **`sf project retrieve`** (must stay inside the project for the Salesforce CLI). Add a single **`.udlo-notifier/`** line to **`.gitignore`**. Legacy root files **`.udlo-state.json`** and **`.udlo-keys/`** are still read or removed when present.
+
 Published installs (`npm install udlo-notifier`) ship **`force-app/`**, **`s3/`** helpers, and **`dist/`** via the package `files` list — no `sf plugins link` required.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `udlo-notifier udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → **verify** S3 connection + UDLO exist → AWS (STS, IAM, Secrets, Lambda from **bundled or `--lambda-zip`**) → S3 notifications. Writes **`.udlo-state.json`** in the **current working directory**. |
-| `udlo-notifier udlo teardown` | Removes S3 notifications, Lambda, secrets, IAM role; clears state. Does **not** delete the Connected App or the **UDLO** in Data Cloud (remove those in the UI if needed). |
-| `udlo-notifier udlo status` | Reads `.udlo-state.json` and probes Salesforce + AWS resources. |
+| `udlo-notifier udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → **verify** S3 connection + UDLO exist → AWS (STS, IAM, Secrets, Lambda from **bundled or `--lambda-zip`**) → S3 notifications. Writes **`.udlo-notifier/state.json`** and keys under **`.udlo-notifier/keys/`**. |
+| `udlo-notifier udlo teardown` | Removes S3 notifications, Lambda, secrets, IAM role; **deletes the `.udlo-notifier/`** workspace (state + local keys). Does **not** delete the Connected App or the **UDLO** in Data Cloud (remove those in the UI if needed). |
+| `udlo-notifier udlo status` | Reads **`.udlo-notifier/state.json`** (and legacy **`.udlo-state.json`** if present) and probes Salesforce + AWS resources. |
 
 If you linked the plugin: same subcommands as **`sf udlo setup`**, **`sf udlo status`**, **`sf udlo teardown`**.
 
@@ -104,7 +106,7 @@ Useful flags (see **`udlo-notifier udlo setup --help`**):
 | `--directory` / `-d` | S3 key prefix without leading/trailing slashes; **empty** = bucket root. Must match your UDLO’s directory in Data Cloud; notifications use a trailing slash when non-empty. |
 | `--jwt-audience` | Optional. `https://login.salesforce.com` or `https://test.salesforce.com` for JWT — defaults from the target org. |
 | `--oauth-scope` | Optional. Space-separated scopes for the browser `/authorize` step. Default: `api refresh_token cdp_ingest_api`. |
-| `--aws-profile` | Optional. AWS named profile (`~/.aws/credentials`). Saved in `.udlo-state.json` on setup; status/teardown use the flag or saved value. |
+| `--aws-profile` | Optional. AWS named profile (`~/.aws/credentials`). Saved in **`.udlo-notifier/state.json`** on setup; status/teardown use the flag or saved value. |
 | `--refresh-connected-app` | Redeploy Connected App metadata (cert, policies). Use after template or org policy changes. |
 | `--auto-approve` | Skips the OAuth browser confirmation prompt (still recommended to complete consent once). |
 
@@ -174,8 +176,8 @@ src/
   auth/sf-auth.ts           # resolveConnection() — lazy @salesforce/core
   aws/                      # STS, IAM role, Secrets Manager, Lambda (bundled or custom zip), S3 notifications
   data-cloud/               # Data360Client factory, S3 connection lookup
-  salesforce/               # RSA keys, Connected App deploy/retrieve, OAuth callback on :1717
-  state.ts                  # .udlo-state.json
+  salesforce/               # RSA helpers; keys on disk under cwd `.udlo-notifier/keys/` at setup time
+  state.ts                  # `.udlo-notifier/state.json` + path helpers
   commands/udlo/            # oclif entrypoints (setup / teardown / status)
 aws_lambda_function/        # Python Lambda source packaged by npm run lambda:zip
 force-app/.../connectedApps/  # UDLO_Notifier Connected App metadata template
@@ -195,9 +197,17 @@ docs/                       # architecture.dot (+ optional generated architectur
 | `npm run lambda:zip` | Package `aws_lambda_function/` into `dist/lambda-local.zip` (requires `zip` CLI) |
 | `npm run s3:spinup` | Shell entry to `s3/spinup.sh` |
 
-## State file
+## Project workspace (`.udlo-notifier/`)
 
-Successful runs write **`.udlo-state.json`** in the working directory (resource IDs for teardown). This repo ignores it in `.gitignore`.
+Setup creates **`.udlo-notifier/`** in the directory you run from:
+
+| Path | Purpose |
+|------|---------|
+| **`state.json`** | Resource IDs and names for status/teardown (replaces legacy **`.udlo-state.json`** at the project root once you save again). |
+| **`keys/`** | **`keypair.pem`** and **`certificate.crt`** for the Connected App and Lambda. |
+| **`retrieve-*`** | Short-lived folders for Connected App metadata retrieve (removed after each run). |
+
+Add **`.udlo-notifier/`** to **`.gitignore`**. **`udlo teardown`** deletes the whole directory (local keys and state).
 
 ## References
 

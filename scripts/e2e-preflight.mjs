@@ -53,13 +53,13 @@ async function main() {
   console.log(`   Instance: ${conn.instanceUrl}\n`);
 
   console.log("2) RSA key pair (ensureKeyPair)");
-  const keysDir = join(pluginRoot, "keys");
+  const keysDir = join(process.cwd(), ".udlo-notifier", "keys");
   const { pemPath, crtPath } = ensureKeyPair(keysDir);
   console.log(`   OK — ${pemPath}`);
   console.log(`           ${crtPath}\n`);
 
   console.log("3) Connected App UDLO_Notifier (find or deploy)");
-  let consumerKey = await findExistingConnectedApp(conn, pluginRoot);
+  let consumerKey = await findExistingConnectedApp(conn);
   if (consumerKey && !process.env.UDLO_E2E_FORCE_DEPLOY) {
     console.log(`   Already in org — consumer key ${maskKey(consumerKey)} (set UDLO_E2E_FORCE_DEPLOY=1 to redeploy)\n`);
   } else {
