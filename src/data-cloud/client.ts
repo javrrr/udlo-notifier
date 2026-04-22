@@ -11,7 +11,7 @@ export function createData360Client(conn: SfConnection): Data360Client {
 }
 
 /**
- * Strict match on the UDLO API name (e.g. `afd360_s3__dll`). Uses list rather than get()
+ * Strict match on the UDLO API name (e.g. `my_udlo__dll`). Uses list rather than get()
  * because the get endpoint is inconsistent about which identifier form it accepts.
  */
 export async function requireUdlo(client: Data360Client, name: string): Promise<string> {
@@ -20,7 +20,7 @@ export async function requireUdlo(client: Data360Client, name: string): Promise<
   }
   throw new Error(
     `No Data Lake Object named "${name}" in Data Cloud. ` +
-      "Pass the exact API name including the __dll suffix (e.g. afd360_s3__dll) via --object-name. " +
+      "Pass the exact API name including the __dll suffix (e.g. my_udlo__dll) via --object-name. " +
       "Find it in Data Cloud > Data Lake Objects (API Name column). " +
       "Create the UDLO first if it doesn't exist: New > From External Files > Amazon S3.",
   );

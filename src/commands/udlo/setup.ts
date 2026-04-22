@@ -22,7 +22,7 @@ export default class Setup extends Command {
     bucket: Flags.string({ char: "b", description: "S3 bucket name", required: true }),
     "object-name": Flags.string({
       char: "n",
-      description: "Existing UDLO API name (must include __dll suffix, e.g. afd360_s3__dll)",
+      description: "Existing UDLO API name (must include __dll suffix, e.g. my_udlo__dll)",
       required: true,
     }),
     "s3-connection": Flags.string({

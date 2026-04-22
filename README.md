@@ -69,7 +69,7 @@ udlo-notifier udlo teardown
 |---|---|
 | `-o, --target-org` | Salesforce alias or username (defaults to `sf config get target-org`) |
 | `-b, --bucket` | S3 bucket (required) |
-| `-n, --object-name` | UDLO API name including `__dll` suffix, e.g. `afd360_s3__dll` (must already exist; required) |
+| `-n, --object-name` | UDLO API name including `__dll` suffix, e.g. `my_udlo__dll` (must already exist; required) |
 | `-c, --s3-connection` | Data Cloud S3 connection Name or API Name (required on first run; saved to state) |
 | `-d, --directory` | S3 key prefix (no leading/trailing slash); empty = bucket root |
 | `--aws-region` | Defaults to `us-east-1` |

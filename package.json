@@ -2,6 +2,19 @@
   "name": "udlo-notifier",
   "version": "0.2.0",
   "description": "Minimal CLI to wire S3 → Data Cloud UDLO ingestion (Lambda + Secrets Manager + S3 notifications)",
+  "keywords": [
+    "salesforce",
+    "data-cloud",
+    "udlo",
+    "s3",
+    "lambda",
+    "ingestion",
+    "unstructured",
+    "oclif",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Javier Leung",
   "type": "module",
   "bin": {
     "udlo-notifier": "./bin/run.js"
@@ -11,10 +24,15 @@
     "bin",
     "force-app",
     "sfdx-project.json",
+    "LICENSE",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && mkdir -p dist/lambda && cp src/lambda/handler.mjs dist/lambda/handler.mjs",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc -p tsconfig.build.json && mkdir -p dist/lambda && cp src/lambda/handler.mjs dist/lambda/handler.mjs",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "prepack": "npm run build"
