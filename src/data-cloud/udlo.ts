@@ -9,6 +9,15 @@ export interface UdloResult {
 const UI_POLL_INTERVAL_MS = 3000;
 const UI_POLL_MAX_MS = 600_000;
 
+/** Data Cloud UDLO directory paths expect a trailing slash (e.g. `afd360/`), not `afd360`. */
+export function udloDirectoryPathForDataCloud(relativeDirectory: string): string {
+  const d = relativeDirectory.trim();
+  if (d === "") {
+    return "";
+  }
+  return d.endsWith("/") ? d : `${d}/`;
+}
+
 async function findUdloByDeveloperName(
   client: Data360Client,
   objectName: string,
@@ -86,14 +95,15 @@ export async function createUdlo(
     return existing;
   }
 
-  const body = buildCreatePayload(objectName, connectionId, s3Directory, dataSpace);
+  const directoryPath = udloDirectoryPathForDataCloud(s3Directory);
+  const body = buildCreatePayload(objectName, connectionId, directoryPath, dataSpace);
   try {
     const created = await client.dataLakeObjects.create(body);
     const udloName = created.name ?? objectName;
     return { udloName, udmoName: udloName };
   } catch (e) {
     const apiError = e instanceof Error ? e.message : String(e);
-    return waitForUdloAfterUiFailure(client, objectName, s3Directory, apiError);
+    return waitForUdloAfterUiFailure(client, objectName, directoryPath, apiError);
   }
 }
 

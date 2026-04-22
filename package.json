@@ -19,7 +19,8 @@
     "sfdx-project.json",
     "s3",
     "scripts/package-lambda.mjs",
-    "README.md"
+    "README.md",
+    "docs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

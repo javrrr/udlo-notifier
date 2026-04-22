@@ -1,5 +1,7 @@
 # Data Cloud S3 — AWS IAM helpers
 
+For the full pipeline (Lambda vs Data Cloud S3 principal, UDLO, Connected App), see the **Architecture** section in the repository root [`README.md`](../README.md).
+
 These scripts run **before** `sf udlo setup`: they do **not** create the Salesforce connection for you. They only attach **AWS IAM** policies (and optionally create an IAM role) so Data 360 can use **either**:
 
 - **Access key + secret** on an **existing IAM user** (typical when org SCPs block `iam:CreateUser`), or  

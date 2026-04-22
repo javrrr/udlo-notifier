@@ -39,7 +39,8 @@ export default class Setup extends Command {
     directory: Flags.string({
       char: "d",
       description:
-        "S3 key prefix within the bucket (no leading/trailing slashes). Omit or pass empty for bucket root.",
+        "S3 key prefix within the bucket (no leading/trailing slashes). Omit or pass empty for bucket root. " +
+        "When creating the UDLO, a trailing slash is sent to Data Cloud (e.g. afd360/); S3 event prefix matches the same path.",
       default: "",
     }),
     "object-name": Flags.string({

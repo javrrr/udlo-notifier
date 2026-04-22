@@ -7,7 +7,7 @@
     <certificate>__CERTIFICATE_PEM__</certificate>
     <isAdminApproved>false</isAdminApproved>
     <isConsumerSecretOptional>false</isConsumerSecretOptional>
-    <isNamedUserJwtEnabled>true</isNamedUserJwtEnabled>
+    <isNamedUserJwtEnabled>false</isNamedUserJwtEnabled>
     <isSecretRequiredForRefreshToken>true</isSecretRequiredForRefreshToken>
     <scopes>Api</scopes>
     <scopes>RefreshToken</scopes>
