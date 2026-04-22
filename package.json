@@ -1,38 +1,22 @@
 {
   "name": "udlo-notifier",
-  "version": "0.1.0",
-  "description": "CLI (oclif) for S3 → Data Cloud UDLO pipeline setup; use as npm package or optional sf plugins link",
+  "version": "0.2.0",
+  "description": "Minimal CLI to wire S3 → Data Cloud UDLO ingestion (Lambda + Secrets Manager + S3 notifications)",
   "type": "module",
   "bin": {
     "udlo-notifier": "./bin/run.js"
-  },
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
   },
   "files": [
     "dist",
     "bin",
     "force-app",
     "sfdx-project.json",
-    "s3",
-    "scripts/package-lambda.mjs",
-    "README.md",
-    "docs"
+    "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "s3": "bash s3/spinup.sh",
-    "s3:spinup": "bash s3/spinup.sh",
-    "s3:user-policy": "bash s3/deploy-user-policy.sh",
-    "s3:role": "bash s3/deploy-role.sh",
-    "lambda:zip": "node scripts/package-lambda.mjs",
+    "build": "tsc -p tsconfig.build.json && mkdir -p dist/lambda && cp src/lambda/handler.mjs dist/lambda/handler.mjs",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/e2e-preflight.mjs",
     "prepack": "npm run build"
   },
   "oclif": {

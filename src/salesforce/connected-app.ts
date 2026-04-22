@@ -5,82 +5,38 @@ import { join } from "node:path";
 import type { SfConnection } from "../auth/sf-auth.js";
 import { createRetrieveTempDir } from "../state.js";
 
-const CONNECTED_APP_NAME = "UDLO_Notifier";
+export const CONNECTED_APP_NAME = "UDLO_Notifier";
 const PLACEHOLDER = "__CERTIFICATE_PEM__";
 const TEMPLATE_REL = join("force-app", "main", "default", "connectedApps", `${CONNECTED_APP_NAME}.connectedApp-meta.xml`);
 
-function runSf(args: string[]): string {
+function sf(args: string[]): string {
   try {
-    return execFileSync("sf", args, {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 50 * 1024 * 1024,
-    });
+    return execFileSync("sf", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 10 * 1024 * 1024 });
   } catch (e: unknown) {
     const err = e as { stderr?: Buffer | string; stdout?: Buffer | string };
-    const stderr = typeof err.stderr === "string" ? err.stderr : err.stderr?.toString();
-    const stdout = typeof err.stdout === "string" ? err.stdout : err.stdout?.toString();
-    const detail = [stdout?.trim(), stderr?.trim()].filter(Boolean).join("\n");
+    const detail = [err.stdout?.toString().trim(), err.stderr?.toString().trim()].filter(Boolean).join("\n");
     throw new Error(`sf ${args.join(" ")} failed: ${detail || String(e)}`);
   }
 }
 
-function parseToolingQueryTotalSize(jsonRaw: string): number {
-  const j = JSON.parse(jsonRaw) as {
-    status: number;
-    result?: { totalSize: number };
-  };
-  if (j.status !== 0 || !j.result) {
-    return 0;
-  }
-  return j.result.totalSize;
-}
-
-function parseConsumerKeyFromConnectedAppXml(xml: string): string | null {
-  const m = xml.match(/<consumerKey>\s*([^<]+?)\s*<\/consumerKey>/);
-  const key = m?.[1]?.trim();
-  return key && key.length > 0 ? key : null;
-}
-
-/**
- * Reads the consumer key from retrieved Connected App metadata (Tooling SOQL no longer exposes ConsumerKey).
- * Retrieve output goes under `.udlo-notifier/` in the DX project so `sf project retrieve --output-dir` stays
- * inside the Salesforce project root.
- */
-function readConsumerKeyFromOrg(conn: SfConnection): string {
-  const retDir = createRetrieveTempDir(process.cwd());
+function readConsumerKey(conn: SfConnection): string {
+  const dir = createRetrieveTempDir(process.cwd());
   try {
-    runSf([
-      "project",
-      "retrieve",
-      "start",
-      "--metadata",
-      `ConnectedApp:${CONNECTED_APP_NAME}`,
-      "--target-org",
-      conn.username,
-      "--output-dir",
-      retDir,
-      "--json",
-    ]);
-    const xmlPath = join(retDir, "connectedApps", `${CONNECTED_APP_NAME}.connectedApp-meta.xml`);
+    sf(["project", "retrieve", "start", "--metadata", `ConnectedApp:${CONNECTED_APP_NAME}`, "--target-org", conn.username, "--output-dir", dir, "--json"]);
+    const xmlPath = join(dir, "connectedApps", `${CONNECTED_APP_NAME}.connectedApp-meta.xml`);
     if (!existsSync(xmlPath)) {
-      throw new Error(
-        `Expected retrieved metadata at ${xmlPath}. Check that ConnectedApp:${CONNECTED_APP_NAME} exists in the org.`,
-      );
+      throw new Error(`Retrieved metadata missing: ${xmlPath}`);
     }
-    const xml = readFileSync(xmlPath, "utf-8");
-    const key = parseConsumerKeyFromConnectedAppXml(xml);
-    if (!key) {
-      throw new Error("Retrieved Connected App metadata did not contain a consumerKey element.");
-    }
+    const key = readFileSync(xmlPath, "utf-8").match(/<consumerKey>\s*([^<]+?)\s*<\/consumerKey>/)?.[1]?.trim();
+    if (!key) throw new Error("Connected App metadata missing consumerKey");
     return key;
   } finally {
-    rmSync(retDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
 export async function findExistingConnectedApp(conn: SfConnection): Promise<string | null> {
-  const out = runSf([
+  const out = sf([
     "data",
     "query",
     "--query",
@@ -90,72 +46,26 @@ export async function findExistingConnectedApp(conn: SfConnection): Promise<stri
     conn.username,
     "--json",
   ]);
-  if (parseToolingQueryTotalSize(out) < 1) {
-    return null;
-  }
-  return readConsumerKeyFromOrg(conn);
+  const parsed = JSON.parse(out) as { result?: { totalSize?: number } };
+  if ((parsed.result?.totalSize ?? 0) < 1) return null;
+  return readConsumerKey(conn);
 }
 
-function buildInjectedMetadata(pluginRoot: string, crtPath: string): string {
-  const templatePath = join(pluginRoot, TEMPLATE_REL);
-  const template = readFileSync(templatePath, "utf-8");
-  if (!template.includes(PLACEHOLDER)) {
-    throw new Error(`Connected app template must contain ${PLACEHOLDER} for certificate injection`);
-  }
-  const certPem = readFileSync(crtPath, "utf-8").trim();
-  return template.replace(PLACEHOLDER, certPem);
-}
+export async function deployConnectedApp(conn: SfConnection, crtPath: string, pluginRoot: string): Promise<string> {
+  const template = readFileSync(join(pluginRoot, TEMPLATE_REL), "utf-8");
+  if (!template.includes(PLACEHOLDER)) throw new Error(`Template missing ${PLACEHOLDER}`);
+  const cert = readFileSync(crtPath, "utf-8").trim();
+  const injected = template.replace(PLACEHOLDER, cert);
 
-export async function deployConnectedApp(
-  conn: SfConnection,
-  crtPath: string,
-  pluginRoot: string,
-): Promise<string> {
-  const injected = buildInjectedMetadata(pluginRoot, crtPath);
-  const packRoot = join(tmpdir(), `udlo-connected-app-${process.pid}-${Date.now()}`);
-  const connectedAppsDir = join(packRoot, "force-app", "main", "default", "connectedApps");
-  mkdirSync(connectedAppsDir, { recursive: true });
-  const deployedFile = join(connectedAppsDir, `${CONNECTED_APP_NAME}.connectedApp-meta.xml`);
-  writeFileSync(deployedFile, injected, "utf-8");
+  const pack = join(tmpdir(), `udlo-ca-${process.pid}-${Date.now()}`);
+  const appDir = join(pack, "force-app", "main", "default", "connectedApps");
+  mkdirSync(appDir, { recursive: true });
+  writeFileSync(join(appDir, `${CONNECTED_APP_NAME}.connectedApp-meta.xml`), injected);
 
   try {
-    const deployOut = runSf([
-      "project",
-      "deploy",
-      "start",
-      "--source-dir",
-      connectedAppsDir,
-      "--target-org",
-      conn.username,
-      "--wait",
-      "10",
-      "--json",
-    ]);
-    const deployJson = JSON.parse(deployOut) as { status: number; message?: string };
-    if (deployJson.status !== 0) {
-      throw new Error(deployJson.message ?? "Salesforce deploy failed");
-    }
+    sf(["project", "deploy", "start", "--source-dir", appDir, "--target-org", conn.username, "--wait", "10", "--json"]);
   } finally {
-    rmSync(packRoot, { recursive: true, force: true });
+    rmSync(pack, { recursive: true, force: true });
   }
-
-  return readConsumerKeyFromOrg(conn);
-}
-
-export async function destroyConnectedApp(conn: SfConnection): Promise<void> {
-  try {
-    runSf([
-      "project",
-      "delete",
-      "source",
-      "--metadata",
-      `ConnectedApp:${CONNECTED_APP_NAME}`,
-      "--target-org",
-      conn.username,
-      "--no-prompt",
-      "--json",
-    ]);
-  } catch {
-    // Org may already have the component removed; treat as best-effort teardown
-  }
+  return readConsumerKey(conn);
 }

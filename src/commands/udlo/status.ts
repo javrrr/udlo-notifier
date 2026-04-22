@@ -1,127 +1,73 @@
 import { Command, Flags } from "@oclif/core";
-
-function row(label: string, status: string, detail: string): void {
-  process.stdout.write(`${label.padEnd(22)} ${status.padEnd(8)} ${detail}\n`);
-}
+import { GetRoleCommand } from "@aws-sdk/client-iam";
+import { GetFunctionCommand } from "@aws-sdk/client-lambda";
+import { GetBucketNotificationConfigurationCommand } from "@aws-sdk/client-s3";
+import { DescribeSecretCommand } from "@aws-sdk/client-secrets-manager";
+import { createAwsClients } from "../../aws/clients.js";
+import { readState } from "../../state.js";
 
 export default class Status extends Command {
-  static override description = "Check health of the UDLO pipeline (from `.udlo-notifier/state.json`)";
+  static override description = "Show health of the UDLO pipeline";
 
   static override flags = {
-    "target-org": Flags.string({ char: "o", description: "Salesforce org alias or username" }),
-    "aws-region": Flags.string({ description: "AWS region", default: "us-east-1" }),
-    "aws-profile": Flags.string({
-      description: "AWS named profile; optional. Overrides saved awsProfile in `.udlo-notifier/state.json`.",
-    }),
+    "aws-region": Flags.string({ description: "AWS region (defaults to saved value from setup)" }),
+    "aws-profile": Flags.string({ description: "AWS named profile" }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Status);
-    const cwd = process.cwd();
-
-    const { readState } = await import("../../state.js");
-    const state = readState(cwd);
-
-    this.log("Resource               Status   Detail");
-    this.log("────────────────────── ──────── ─────────────────────────────────────────");
+    const state = readState(process.cwd());
 
     if (!state.lambdaFunctionName && !state.s3Bucket) {
-      this.log("(No state — run udlo-notifier udlo setup first)");
+      this.log("No state — run `udlo-notifier udlo setup` first.");
       return;
     }
 
-    const { createAwsClients } = await import("../../aws/clients.js");
-    const awsProfile = flags["aws-profile"]?.trim() || state.awsProfile;
-    const aws = createAwsClients(flags["aws-region"], { profile: awsProfile });
-
-    const { resolveConnection } = await import("../../auth/sf-auth.js");
-    const { createData360Client } = await import("../../data-cloud/client.js");
-    const conn = await resolveConnection(flags["target-org"]);
-    const client = createData360Client(conn);
-
-    try {
-      const { findExistingConnectedApp } = await import("../../salesforce/connected-app.js");
-      const ck = await findExistingConnectedApp(conn);
-      row("Connected App", ck ? "OK" : "?", ck ? "UDLO_Notifier (consumer key present)" : "Not found / not queryable");
-    } catch {
-      row("Connected App", "?", "Could not verify");
+    const region = flags["aws-region"]?.trim() || state.awsRegion;
+    if (!region) {
+      this.error("No AWS region. Pass --aws-region or run setup first so it is saved to state.");
     }
+    const aws = createAwsClients(region, flags["aws-profile"]?.trim() || state.awsProfile);
 
-    if (state.s3ConnectionId) {
+    const row = (label: string, status: string, detail: string): void => {
+      this.log(`${label.padEnd(14)} ${status.padEnd(8)} ${detail}`);
+    };
+
+    const probe = async (label: string, detail: string, check: () => Promise<unknown>): Promise<void> => {
       try {
-        await client.connections.get(state.s3ConnectionId);
-        row("S3 connection", "OK", state.s3ConnectionId);
+        await check();
+        row(label, "OK", detail);
       } catch {
-        row("S3 connection", "WARN", `${state.s3ConnectionId} (get failed)`);
+        row(label, "MISSING", detail);
       }
-    } else {
-      row("S3 connection", "—", "Not in state");
-    }
+    };
 
-    if (state.udloName) {
-      try {
-        await client.dataLakeObjects.get(state.udloName);
-        row("UDLO", "OK", state.udloName);
-      } catch {
-        row("UDLO", "WARN", `${state.udloName} (get failed)`);
-      }
-    } else {
-      row("UDLO", "—", "Not in state");
-    }
-
-    if (state.lambdaFunctionName) {
-      try {
-        const { GetFunctionCommand } = await import("@aws-sdk/client-lambda");
-        const cfg = await aws.lambda.send(
-          new GetFunctionCommand({ FunctionName: state.lambdaFunctionName }),
-        );
-        row("Lambda", cfg.Configuration?.State === "Active" ? "OK" : "?", state.lambdaFunctionName);
-      } catch {
-        row("Lambda", "MISSING", state.lambdaFunctionName);
-      }
-    } else {
-      row("Lambda", "—", "Not in state");
-    }
-
-    if (state.s3Bucket && state.lambdaFunctionArn) {
-      try {
-        const { GetBucketNotificationConfigurationCommand } = await import("@aws-sdk/client-s3");
-        const n = await aws.s3.send(new GetBucketNotificationConfigurationCommand({ Bucket: state.s3Bucket }));
-        const has = (n.LambdaFunctionConfigurations ?? []).some(
-          (c) => c.LambdaFunctionArn === state.lambdaFunctionArn,
-        );
-        row("S3 → Lambda", has ? "OK" : "WARN", `s3://${state.s3Bucket}/${state.s3Directory ?? ""}/`);
-      } catch {
-        row("S3 → Lambda", "?", state.s3Bucket);
-      }
-    } else {
-      row("S3 → Lambda", "—", "Incomplete state");
-    }
-
-    if (state.consumerKeySecretName) {
-      try {
-        const { DescribeSecretCommand } = await import("@aws-sdk/client-secrets-manager");
-        await aws.secretsManager.send(
-          new DescribeSecretCommand({ SecretId: state.consumerKeySecretName }),
-        );
-        row("Secrets", "OK", "consumer key + RSA (if named in state)");
-      } catch {
-        row("Secrets", "?", state.consumerKeySecretName);
-      }
-    } else {
-      row("Secrets", "—", "Not in state");
-    }
+    row("Resource", "Status", "Detail");
+    row("────────", "──────", "──────");
 
     if (state.lambdaRoleName) {
-      try {
-        const { GetRoleCommand } = await import("@aws-sdk/client-iam");
-        await aws.iam.send(new GetRoleCommand({ RoleName: state.lambdaRoleName }));
-        row("IAM role", "OK", state.lambdaRoleName);
-      } catch {
-        row("IAM role", "MISSING", state.lambdaRoleName);
-      }
-    } else {
-      row("IAM role", "—", "Not in state");
+      await probe("IAM role", state.lambdaRoleName, () => aws.iam.send(new GetRoleCommand({ RoleName: state.lambdaRoleName! })));
     }
+    if (state.consumerKeySecretName) {
+      await probe("Secrets", state.consumerKeySecretName, () =>
+        aws.secrets.send(new DescribeSecretCommand({ SecretId: state.consumerKeySecretName! })),
+      );
+    }
+    if (state.lambdaFunctionName) {
+      await probe("Lambda", state.lambdaFunctionName, () =>
+        aws.lambda.send(new GetFunctionCommand({ FunctionName: state.lambdaFunctionName! })),
+      );
+    }
+    if (state.s3Bucket && state.lambdaFunctionArn) {
+      try {
+        const n = await aws.s3.send(new GetBucketNotificationConfigurationCommand({ Bucket: state.s3Bucket }));
+        const wired = (n.LambdaFunctionConfigurations ?? []).some((c) => c.LambdaFunctionArn === state.lambdaFunctionArn);
+        row("S3 → Lambda", wired ? "OK" : "MISSING", `s3://${state.s3Bucket}/${state.s3Directory ?? ""}`);
+      } catch {
+        row("S3 → Lambda", "ERROR", state.s3Bucket);
+      }
+    }
+    if (state.udloName) row("UDLO", "—", state.udloName);
+    if (state.s3ConnectionName) row("S3 connection", "—", `${state.s3ConnectionName} (${state.s3ConnectionId ?? "?"})`);
   }
 }

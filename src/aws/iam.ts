@@ -1,79 +1,48 @@
 import {
   AttachRolePolicyCommand,
+  CreateRoleCommand,
   DeleteRoleCommand,
   DetachRolePolicyCommand,
-  CreateRoleCommand,
   GetRoleCommand,
   NoSuchEntityException,
   type IAMClient,
 } from "@aws-sdk/client-iam";
-import { sleep } from "../helpers.js";
 
-const LAMBDA_BASIC_EXECUTION_POLICY_ARN = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole";
+const BASIC_EXEC = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole";
 
-export async function ensureLambdaRole(iamClient: IAMClient, roleName: string): Promise<string> {
+const TRUST = JSON.stringify({
+  Version: "2012-10-17",
+  Statement: [{ Effect: "Allow", Principal: { Service: "lambda.amazonaws.com" }, Action: "sts:AssumeRole" }],
+});
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+export async function ensureLambdaRole(iam: IAMClient, name: string): Promise<string> {
   try {
-    const existing = await iamClient.send(new GetRoleCommand({ RoleName: roleName }));
-    if (existing.Role?.Arn) {
-      return existing.Role.Arn;
-    }
+    const r = await iam.send(new GetRoleCommand({ RoleName: name }));
+    if (r.Role?.Arn) return r.Role.Arn;
   } catch (e) {
-    if (!(e instanceof NoSuchEntityException)) {
-      throw e;
-    }
+    if (!(e instanceof NoSuchEntityException)) throw e;
   }
 
-  await iamClient.send(
-    new CreateRoleCommand({
-      RoleName: roleName,
-      AssumeRolePolicyDocument: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [
-          {
-            Effect: "Allow",
-            Principal: { Service: "lambda.amazonaws.com" },
-            Action: "sts:AssumeRole",
-          },
-        ],
-      }),
-    }),
-  );
-
-  await iamClient.send(
-    new AttachRolePolicyCommand({
-      RoleName: roleName,
-      PolicyArn: LAMBDA_BASIC_EXECUTION_POLICY_ARN,
-    }),
-  );
-
+  await iam.send(new CreateRoleCommand({ RoleName: name, AssumeRolePolicyDocument: TRUST }));
+  await iam.send(new AttachRolePolicyCommand({ RoleName: name, PolicyArn: BASIC_EXEC }));
+  // IAM is eventually consistent for Lambda role assumption.
   await sleep(10_000);
 
-  const again = await iamClient.send(new GetRoleCommand({ RoleName: roleName }));
-  if (!again.Role?.Arn) {
-    throw new Error(`IAM role ${roleName} was created but ARN is missing`);
-  }
-  return again.Role.Arn;
+  const r = await iam.send(new GetRoleCommand({ RoleName: name }));
+  if (!r.Role?.Arn) throw new Error(`IAM role ${name} created but ARN missing`);
+  return r.Role.Arn;
 }
 
-export async function destroyLambdaRole(iamClient: IAMClient, roleName: string): Promise<void> {
-  try {
-    await iamClient.send(
-      new DetachRolePolicyCommand({
-        RoleName: roleName,
-        PolicyArn: LAMBDA_BASIC_EXECUTION_POLICY_ARN,
-      }),
-    );
-  } catch (e) {
-    if (!(e instanceof NoSuchEntityException)) {
-      throw e;
+export async function destroyLambdaRole(iam: IAMClient, name: string): Promise<void> {
+  const ignoreMissing = async (fn: () => Promise<unknown>): Promise<void> => {
+    try {
+      await fn();
+    } catch (e) {
+      if (!(e instanceof NoSuchEntityException)) throw e;
     }
-  }
-
-  try {
-    await iamClient.send(new DeleteRoleCommand({ RoleName: roleName }));
-  } catch (e) {
-    if (!(e instanceof NoSuchEntityException)) {
-      throw e;
-    }
-  }
+  };
+  await ignoreMissing(() => iam.send(new DetachRolePolicyCommand({ RoleName: name, PolicyArn: BASIC_EXEC })));
+  await ignoreMissing(() => iam.send(new DeleteRoleCommand({ RoleName: name })));
 }

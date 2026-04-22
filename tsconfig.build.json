@@ -5,5 +5,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["test"]
+  "exclude": ["test", "src/lambda"]
 }

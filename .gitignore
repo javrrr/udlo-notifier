@@ -1,17 +1,6 @@
 node_modules/
 dist/
 *.log
+*.tgz
 .udlo-notifier/
-keys/
 .DS_Store
-PLAN.md
-
-# SF Directories
-/aws_lambda_function
-/force-app
-/sfdx-project.json
-
-# s3/ helper dir: track scripts and templates, not local binaries or log exports
-s3/*.zip
-s3/*.pdf
-s3/log-events*.csv

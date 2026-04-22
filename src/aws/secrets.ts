@@ -10,110 +10,60 @@ import {
   type SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 
-/** PEM as a single SecretString (matches `cat keypair.pem`); normalize line endings and strip UTF-8 BOM. */
-function normalizePemForSecret(raw: string): string {
-  return raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-}
-
-async function describeSecretArn(smClient: SecretsManagerClient, secretId: string): Promise<string> {
-  const d = await smClient.send(new DescribeSecretCommand({ SecretId: secretId }));
-  if (!d.ARN) {
-    throw new Error(`Secret ${secretId} has no ARN`);
+async function putSecret(sm: SecretsManagerClient, name: string, value: string): Promise<string> {
+  try {
+    const r = await sm.send(new CreateSecretCommand({ Name: name, SecretString: value }));
+    if (r.ARN) return r.ARN;
+  } catch (e) {
+    if (!(e instanceof ResourceExistsException)) throw e;
+    await sm.send(new PutSecretValueCommand({ SecretId: name, SecretString: value }));
   }
+  const d = await sm.send(new DescribeSecretCommand({ SecretId: name }));
+  if (!d.ARN) throw new Error(`Secret ${name} has no ARN`);
   return d.ARN;
 }
 
-async function ensureSecretString(
-  smClient: SecretsManagerClient,
-  name: string,
-  secretString: string,
-): Promise<string> {
-  try {
-    const created = await smClient.send(
-      new CreateSecretCommand({
-        Name: name,
-        SecretString: secretString,
-      }),
-    );
-    if (created.ARN) {
-      return created.ARN;
-    }
-  } catch (e) {
-    if (!(e instanceof ResourceExistsException)) {
-      throw e;
-    }
-    await smClient.send(
-      new PutSecretValueCommand({
-        SecretId: name,
-        SecretString: secretString,
-      }),
-    );
-  }
-  return describeSecretArn(smClient, name);
-}
-
-async function attachLambdaGetSecretPolicy(
-  smClient: SecretsManagerClient,
-  secretArn: string,
-  lambdaRoleArn: string,
-): Promise<void> {
-  const policy = JSON.stringify({
-    Version: "2012-10-17",
-    Statement: [
-      {
-        Effect: "Allow",
-        Principal: { AWS: lambdaRoleArn },
-        Action: "secretsmanager:GetSecretValue",
-        Resource: secretArn,
-      },
-    ],
-  });
-  await smClient.send(
+async function grantLambdaGet(sm: SecretsManagerClient, arn: string, roleArn: string): Promise<void> {
+  await sm.send(
     new PutResourcePolicyCommand({
-      SecretId: secretArn,
-      ResourcePolicy: policy,
+      SecretId: arn,
+      ResourcePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Principal: { AWS: roleArn },
+            Action: "secretsmanager:GetSecretValue",
+            Resource: arn,
+          },
+        ],
+      }),
       BlockPublicPolicy: true,
     }),
   );
 }
 
 export async function ensureSecrets(
-  smClient: SecretsManagerClient,
-  consumerKeySecretName: string,
-  rsaKeySecretName: string,
+  sm: SecretsManagerClient,
+  consumerKeyName: string,
+  rsaKeyName: string,
   consumerKey: string,
-  pemFilePath: string,
-  lambdaRoleArn: string,
-  _awsAccountId: string,
-): Promise<{ consumerKeySecretArn: string; rsaKeySecretArn: string }> {
-  const consumerKeyPlain = consumerKey.trim();
-  if (!consumerKeyPlain) {
-    throw new Error("Consumer key is empty; check Connected App metadata and setup state.");
-  }
-  const pem = normalizePemForSecret(readFileSync(pemFilePath, "utf-8"));
-
-  const consumerKeySecretArn = await ensureSecretString(smClient, consumerKeySecretName, consumerKeyPlain);
-  const rsaKeySecretArn = await ensureSecretString(smClient, rsaKeySecretName, pem);
-
-  await attachLambdaGetSecretPolicy(smClient, consumerKeySecretArn, lambdaRoleArn);
-  await attachLambdaGetSecretPolicy(smClient, rsaKeySecretArn, lambdaRoleArn);
-
-  return { consumerKeySecretArn, rsaKeySecretArn };
+  pemPath: string,
+  roleArn: string,
+): Promise<void> {
+  const pem = readFileSync(pemPath, "utf-8").replace(/\r\n/g, "\n");
+  const ckArn = await putSecret(sm, consumerKeyName, consumerKey.trim());
+  const rsaArn = await putSecret(sm, rsaKeyName, pem);
+  await grantLambdaGet(sm, ckArn, roleArn);
+  await grantLambdaGet(sm, rsaArn, roleArn);
 }
 
-export async function destroySecrets(smClient: SecretsManagerClient, names: string[]): Promise<void> {
-  for (const name of names) {
+export async function destroySecrets(sm: SecretsManagerClient, names: string[]): Promise<void> {
+  for (const n of names) {
     try {
-      await smClient.send(
-        new DeleteSecretCommand({
-          SecretId: name,
-          ForceDeleteWithoutRecovery: true,
-        }),
-      );
+      await sm.send(new DeleteSecretCommand({ SecretId: n, ForceDeleteWithoutRecovery: true }));
     } catch (e) {
-      if (!(e instanceof ResourceNotFoundException)) {
-        throw e;
-      }
+      if (!(e instanceof ResourceNotFoundException)) throw e;
     }
   }
 }

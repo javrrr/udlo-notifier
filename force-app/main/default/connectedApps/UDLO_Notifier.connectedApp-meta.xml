@@ -12,8 +12,6 @@
     <scopes>Api</scopes>
     <scopes>RefreshToken</scopes>
     <scopes>CDPIngest</scopes>
-    <scopes>CDPQuery</scopes>
-    <scopes>CDPProfile</scopes>
   </oauthConfig>
   <oauthPolicy>
     <ipRelaxation>BYPASS</ipRelaxation>

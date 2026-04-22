@@ -8,171 +8,148 @@ import {
   UpdateFunctionCodeCommand,
   UpdateFunctionConfigurationCommand,
   type LambdaClient,
-  type UpdateFunctionConfigurationRequest,
 } from "@aws-sdk/client-lambda";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
-import { sleep } from "../helpers.js";
+import { crc32 } from "node:zlib";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const LAMBDA_ZIP_MAX_BYTES = 52 * 1024 * 1024;
+const HANDLER_SRC = fileURLToPath(new URL("../lambda/handler.mjs", import.meta.url));
 
-/** Stock Lambda ZIP shipped with this package (`s3/aws_lambda_function.zip` in npm `files`). */
-export function bundledLambdaZipPath(packageRoot: string): string {
-  return join(packageRoot, "s3", "aws_lambda_function.zip");
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+// Minimal single-file ZIP (stored, no compression) — Lambda accepts stored entries.
+export function buildLambdaZip(): Buffer {
+  const name = Buffer.from("handler.mjs");
+  const data = readFileSync(HANDLER_SRC);
+  const crc = crc32(data);
+  const size = data.length;
+
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0, 6);
+  local.writeUInt16LE(0, 8);
+  local.writeUInt16LE(0, 10);
+  local.writeUInt16LE(0, 12);
+  local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(size, 18);
+  local.writeUInt32LE(size, 22);
+  local.writeUInt16LE(name.length, 26);
+  local.writeUInt16LE(0, 28);
+
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(0, 8);
+  central.writeUInt16LE(0, 10);
+  central.writeUInt16LE(0, 12);
+  central.writeUInt16LE(0, 14);
+  central.writeUInt32LE(crc, 16);
+  central.writeUInt32LE(size, 20);
+  central.writeUInt32LE(size, 24);
+  central.writeUInt16LE(name.length, 28);
+  central.writeUInt16LE(0, 30);
+  central.writeUInt16LE(0, 32);
+  central.writeUInt16LE(0, 34);
+  central.writeUInt16LE(0, 36);
+  central.writeUInt32LE(0, 38);
+  central.writeUInt32LE(0, 42);
+
+  const centralOffset = local.length + name.length + data.length;
+  const centralSize = central.length + name.length;
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(centralSize, 12);
+  eocd.writeUInt32LE(centralOffset, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  return Buffer.concat([local, name, data, central, name, eocd]);
 }
 
-/** Resolve a user-supplied path (absolute or relative to `process.cwd()`). */
-export function resolveLambdaZipPath(pathStr: string): string {
-  const trimmed = pathStr.trim();
-  return isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
-}
-
-/** Load a deployment package from disk (absolute path or relative to `process.cwd()`). */
-export function loadLambdaZipFromPath(pathStr: string): Buffer {
-  const resolved = resolveLambdaZipPath(pathStr);
-  if (!existsSync(resolved)) {
-    throw new Error(`Lambda zip not found: ${resolved}`);
-  }
-  const st = statSync(resolved);
-  if (!st.isFile()) {
-    throw new Error(`Lambda zip path is not a file: ${resolved}`);
-  }
-  if (st.size > LAMBDA_ZIP_MAX_BYTES) {
-    throw new Error(`Lambda zip (${st.size} bytes) exceeds direct-upload limit (${LAMBDA_ZIP_MAX_BYTES}).`);
-  }
-  return readFileSync(resolved);
-}
-
-async function waitForLambdaActive(lambdaClient: LambdaClient, functionName: string): Promise<void> {
-  for (let i = 0; i < 90; i++) {
-    const cfg = await lambdaClient.send(new GetFunctionConfigurationCommand({ FunctionName: functionName }));
-    if (cfg.State === "Active" && cfg.LastUpdateStatus !== "InProgress") {
-      if (cfg.LastUpdateStatus === "Failed") {
-        throw new Error(
-          `Lambda ${functionName} update failed: ${cfg.LastUpdateStatusReason ?? "unknown reason"}`,
-        );
-      }
-      return;
+async function waitActive(lambda: LambdaClient, name: string): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    const cfg = await lambda.send(new GetFunctionConfigurationCommand({ FunctionName: name }));
+    if (cfg.LastUpdateStatus === "Failed") {
+      throw new Error(`Lambda ${name} update failed: ${cfg.LastUpdateStatusReason ?? "unknown"}`);
     }
+    if (cfg.State === "Active" && cfg.LastUpdateStatus !== "InProgress") return;
     await sleep(2000);
   }
-  throw new Error(`Lambda ${functionName} did not become active in time`);
-}
-
-/** UpdateFunctionConfiguration fails if code/config updates are still in progress; retry after waiting. */
-async function sendUpdateFunctionConfigurationWithRetry(
-  lambdaClient: LambdaClient,
-  input: UpdateFunctionConfigurationRequest,
-): Promise<void> {
-  const name = input.FunctionName;
-  if (!name) {
-    throw new Error("UpdateFunctionConfiguration requires FunctionName");
-  }
-  for (let attempt = 0; attempt < 8; attempt++) {
-    try {
-      await lambdaClient.send(new UpdateFunctionConfigurationCommand(input));
-      return;
-    } catch (e) {
-      if (e instanceof ResourceConflictException) {
-        await sleep(3000);
-        await waitForLambdaActive(lambdaClient, name);
-        continue;
-      }
-      throw e;
-    }
-  }
-  throw new Error(`Lambda ${name}: UpdateFunctionConfiguration still conflicted after retries`);
-}
-
-/**
- * Stock file-notifier handler uses `SF_LOGIN_URL` only to build `/services/oauth2/token`.
- * That URL must match JWT `aud` — both are the OAuth host (`login` or `test`), not My Domain.
- * The token response supplies `instance_url` for org-specific calls afterward.
- */
-function envConfig(
-  sfOauthBaseUrl: string,
-  sfUsername: string,
-  consumerKeySecretName: string,
-  rsaKeySecretName: string,
-) {
-  const base = sfOauthBaseUrl.replace(/\/+$/, "");
-  return {
-    Variables: {
-      SF_LOGIN_URL: base,
-      SF_AUDIENCE_URL: base,
-      SF_USERNAME: sfUsername,
-      RSA_PRIVATE_KEY: rsaKeySecretName,
-      CONSUMER_KEY: consumerKeySecretName,
-    },
-  };
+  throw new Error(`Lambda ${name} did not become active in time`);
 }
 
 export async function ensureLambda(
-  lambdaClient: LambdaClient,
-  functionName: string,
+  lambda: LambdaClient,
+  name: string,
   roleArn: string,
-  /**
-   * `https://login.salesforce.com` or `https://test.salesforce.com` (no trailing slash).
-   * Written to `SF_LOGIN_URL` and `SF_AUDIENCE_URL` so JWT `aud` and the token POST stay aligned.
-   */
-  sfOauthBaseUrl: string,
-  sfUsername: string,
+  loginUrl: string,
+  username: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
-  /** Local path to the Lambda deployment package (bundled stock zip or custom `--lambda-zip`). */
-  lambdaZipPath: string,
 ): Promise<string> {
-  const zipBuffer = loadLambdaZipFromPath(lambdaZipPath);
-  const environment = envConfig(sfOauthBaseUrl, sfUsername, consumerKeySecretName, rsaKeySecretName);
+  const zip = buildLambdaZip();
+  const env = {
+    Variables: {
+      SF_LOGIN_URL: loginUrl.replace(/\/+$/, ""),
+      SF_USERNAME: username,
+      CONSUMER_KEY: consumerKeySecretName,
+      RSA_PRIVATE_KEY: rsaKeySecretName,
+    },
+  };
 
   try {
-    await lambdaClient.send(new GetFunctionCommand({ FunctionName: functionName }));
-    // Do not overlap Lambda updates: wait for any in-flight change, then code, then config.
-    await waitForLambdaActive(lambdaClient, functionName);
-    await lambdaClient.send(
-      new UpdateFunctionCodeCommand({
-        FunctionName: functionName,
-        ZipFile: zipBuffer,
-      }),
-    );
-    await waitForLambdaActive(lambdaClient, functionName);
-    await sendUpdateFunctionConfigurationWithRetry(lambdaClient, {
-      FunctionName: functionName,
-      Handler: "unstructured_data.s3_events_handler",
-      Timeout: 60,
-      Environment: environment,
-    });
-  } catch (e) {
-    if (!(e instanceof ResourceNotFoundException)) {
-      throw e;
+    await lambda.send(new GetFunctionCommand({ FunctionName: name }));
+    await waitActive(lambda, name);
+    await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: name, ZipFile: zip }));
+    await waitActive(lambda, name);
+    for (let i = 0; i < 5; i++) {
+      try {
+        await lambda.send(
+          new UpdateFunctionConfigurationCommand({
+            FunctionName: name,
+            Handler: "handler.handler",
+            Timeout: 60,
+            Environment: env,
+          }),
+        );
+        break;
+      } catch (e) {
+        if (!(e instanceof ResourceConflictException)) throw e;
+        await sleep(3000);
+        await waitActive(lambda, name);
+      }
     }
-    await lambdaClient.send(
+  } catch (e) {
+    if (!(e instanceof ResourceNotFoundException)) throw e;
+    await lambda.send(
       new CreateFunctionCommand({
-        FunctionName: functionName,
-        Runtime: "python3.11",
-        Handler: "unstructured_data.s3_events_handler",
+        FunctionName: name,
+        Runtime: "nodejs20.x",
+        Handler: "handler.handler",
         Role: roleArn,
-        Code: { ZipFile: zipBuffer },
+        Code: { ZipFile: zip },
         Timeout: 60,
-        Environment: environment,
+        Environment: env,
       }),
     );
   }
 
-  await waitForLambdaActive(lambdaClient, functionName);
-  const final = await lambdaClient.send(new GetFunctionConfigurationCommand({ FunctionName: functionName }));
-  if (!final.FunctionArn) {
-    throw new Error(`Lambda ${functionName} has no FunctionArn after deploy`);
-  }
-  return final.FunctionArn;
+  await waitActive(lambda, name);
+  const cfg = await lambda.send(new GetFunctionConfigurationCommand({ FunctionName: name }));
+  if (!cfg.FunctionArn) throw new Error(`Lambda ${name} missing FunctionArn`);
+  return cfg.FunctionArn;
 }
 
-export async function destroyLambda(lambdaClient: LambdaClient, functionName: string): Promise<void> {
+export async function destroyLambda(lambda: LambdaClient, name: string): Promise<void> {
   try {
-    await lambdaClient.send(new DeleteFunctionCommand({ FunctionName: functionName }));
+    await lambda.send(new DeleteFunctionCommand({ FunctionName: name }));
   } catch (e) {
-    if (!(e instanceof ResourceNotFoundException)) {
-      throw e;
-    }
+    if (!(e instanceof ResourceNotFoundException)) throw e;
   }
 }
