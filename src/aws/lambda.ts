@@ -33,22 +33,6 @@ export function loadLambdaZipFromPath(pathStr: string): Buffer {
   return readFileSync(resolved);
 }
 
-/**
- * Lambda deployment package from env `UDLO_LAMBDA_ZIP_PATH` (required for `sf udlo setup`).
- * Download the official ZIP from Salesforce’s file-notifier-for-blob-store repo or run `npm run lambda:zip`.
- */
-export function loadLambdaZipFromEnv(): Buffer {
-  const fromPath = process.env.UDLO_LAMBDA_ZIP_PATH?.trim();
-  if (!fromPath) {
-    throw new Error(
-      "UDLO_LAMBDA_ZIP_PATH must be set to a local .zip file path before deploying Lambda. " +
-        "Download aws_lambda_function.zip from https://github.com/forcedotcom/file-notifier-for-blob-store " +
-        "or run: npm run lambda:zip",
-    );
-  }
-  return loadLambdaZipFromPath(fromPath);
-}
-
 async function waitForLambdaActive(lambdaClient: LambdaClient, functionName: string): Promise<void> {
   for (let i = 0; i < 90; i++) {
     const cfg = await lambdaClient.send(new GetFunctionConfigurationCommand({ FunctionName: functionName }));
@@ -125,8 +109,10 @@ export async function ensureLambda(
   sfUsername: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
+  /** Local path to the Lambda deployment package (see `sf udlo setup --lambda-zip`). */
+  lambdaZipPath: string,
 ): Promise<string> {
-  const zipBuffer = loadLambdaZipFromEnv();
+  const zipBuffer = loadLambdaZipFromPath(lambdaZipPath);
   const environment = envConfig(sfOauthBaseUrl, sfUsername, consumerKeySecretName, rsaKeySecretName);
 
   try {

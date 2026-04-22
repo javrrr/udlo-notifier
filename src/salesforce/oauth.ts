@@ -8,11 +8,10 @@ const CLIENT_SECRET_ENV = "SF_UDLO_CLIENT_SECRET";
 /**
  * Scopes sent on the /authorize URL only (Salesforce UDLO S3 guide: user must approve api,
  * refresh_token, and cdp_ingest_api). Omitting `scope` requests every Connected App scope and can
- * trigger OAUTH_CODE_CRED_SCOPE_TOO_LONG — use UDLO_OAUTH_PREAUTH_SCOPE to trim if needed.
+ * trigger OAUTH_CODE_CRED_SCOPE_TOO_LONG — pass a narrower string via `sf udlo setup --oauth-scope` if needed.
  *
  * @see https://developer.salesforce.com/docs/data/data-cloud-int/guide/c360-a-awss3-udlo.html
  */
-const PREAUTH_SCOPE_ENV = "UDLO_OAUTH_PREAUTH_SCOPE";
 const DEFAULT_PREAUTH_SCOPE = "api refresh_token cdp_ingest_api";
 
 const OAUTH_TIMEOUT_MS = 300_000;
@@ -140,9 +139,14 @@ async function exchangeCodeForTokens(
   console.log("[udlo-notifier] Connected app pre-authorization succeeded (token exchange completed).");
 }
 
-export async function authorizeConnectedApp(loginUrl: string, consumerKey: string): Promise<void> {
+export async function authorizeConnectedApp(
+  loginUrl: string,
+  consumerKey: string,
+  /** Optional; default matches Salesforce UDLO S3 guide (`api refresh_token cdp_ingest_api`). */
+  preauthScope?: string,
+): Promise<void> {
   const base = loginUrl.replace(/\/+$/, "");
-  const scope = process.env[PREAUTH_SCOPE_ENV] ?? DEFAULT_PREAUTH_SCOPE;
+  const scope = preauthScope?.trim() || DEFAULT_PREAUTH_SCOPE;
   const authUrl =
     `${base}/services/oauth2/authorize?response_type=code&client_id=${encodeURIComponent(consumerKey)}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +

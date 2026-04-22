@@ -13,6 +13,8 @@ export interface PipelineState {
   // AWS
   awsAccountId?: string;
   awsRegion?: string;
+  /** Named profile from ~/.aws/credentials (optional); saved for teardown/status. */
+  awsProfile?: string;
   lambdaRoleName?: string;
   lambdaRoleArn?: string;
   lambdaFunctionName?: string;

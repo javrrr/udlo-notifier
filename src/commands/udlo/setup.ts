@@ -1,11 +1,39 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, Flags } from "@oclif/core";
+import type { Data360Client } from "data-360-sdk";
 import { uniqueSuffix } from "../../helpers.js";
 import { confirm } from "../../prompt.js";
 import type { PipelineState } from "../../state.js";
 
 const pluginRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+interface ResolvedUdloNames {
+  udloName: string;
+  udmoName: string;
+}
+
+/** UDLO must already exist in Data Cloud (UI); Connect API is not used to create it here. */
+async function requireExistingDataLakeObject(
+  client: Data360Client,
+  objectName: string,
+): Promise<ResolvedUdloNames> {
+  const want = objectName.toLowerCase();
+  for await (const dlo of client.dataLakeObjects.listAll({ batchSize: 100 })) {
+    const n = dlo.name?.toLowerCase();
+    const l = dlo.label?.toLowerCase();
+    if (n === want || l === want) {
+      const udloName = dlo.name ?? objectName;
+      return { udloName, udmoName: udloName };
+    }
+  }
+  throw new Error(
+    `No Data Lake Object named "${objectName}" found in Data Cloud. Create the UDLO in the UI first, then re-run setup.\n` +
+      "  Data Cloud > Data Lake Objects > New > From External Files > Amazon S3\n" +
+      "  Use the same object API name as --object-name (-n), and align the S3 directory with --directory (-d).\n" +
+      "  See: https://developer.salesforce.com/docs/data/data-cloud-int/guide/c360-a-awss3-udlo.html",
+  );
+}
 
 function deploymentSuffix(state: PipelineState): string {
   const fromFn = state.lambdaFunctionName?.match(/^udlo-notifier-(.+)-fn$/);
@@ -40,21 +68,37 @@ export default class Setup extends Command {
       char: "d",
       description:
         "S3 key prefix within the bucket (no leading/trailing slashes). Omit or pass empty for bucket root. " +
-        "When creating the UDLO, a trailing slash is sent to Data Cloud (e.g. afd360/); S3 event prefix matches the same path.",
+        "Must match the UDLO directory you configured in Data Cloud (Data Cloud uses a trailing slash, e.g. afd360/); S3 event prefix matches the same path.",
       default: "",
     }),
     "object-name": Flags.string({
       char: "n",
-      description: "UDLO object name in Data Cloud (e.g. MyDocuments)",
+      description:
+        "Existing UDLO API name in Data Cloud (e.g. MyDocuments). Create the UDLO in the UI before setup; this command only checks that it exists.",
       required: true,
     }),
-    "data-space": Flags.string({
-      description: "Data Cloud data space",
-      default: "default",
+    "lambda-zip": Flags.string({
+      char: "z",
+      description:
+        "Path to the Lambda deployment .zip (absolute or relative to cwd). Official: forcedotcom/file-notifier-for-blob-store " +
+        "`cloud_function_zips/aws_lambda_function.zip`; local: `npm run lambda:zip` → `dist/lambda-local.zip`.",
+      required: true,
+    }),
+    "jwt-audience": Flags.string({
+      description:
+        "Salesforce OAuth host for JWT (e.g. https://login.salesforce.com or https://test.salesforce.com). Defaults from the target org.",
+    }),
+    "oauth-scope": Flags.string({
+      description:
+        "Space-separated OAuth scopes for the browser pre-auth step. Default: api refresh_token cdp_ingest_api",
     }),
     "aws-region": Flags.string({
       description: "AWS region for Lambda and Secrets Manager",
       default: "us-east-1",
+    }),
+    "aws-profile": Flags.string({
+      description:
+        "AWS named profile (~/.aws/credentials). Optional; default credential chain if omitted. Saved in state for teardown/status.",
     }),
     "auto-approve": Flags.boolean({
       description: "Skip confirmation prompts (e.g. OAuth browser step)",
@@ -78,16 +122,21 @@ export default class Setup extends Command {
     const { createData360Client } = await import("../../data-cloud/client.js");
     const client = createData360Client(conn);
 
-    const { createAwsClients } = await import("../../aws/clients.js");
-    const aws = createAwsClients(flags["aws-region"]);
-
     const { readState, updateState } = await import("../../state.js");
     const state = readState(cwd);
+
+    const { createAwsClients } = await import("../../aws/clients.js");
+    const awsProfile = flags["aws-profile"]?.trim() || state.awsProfile;
+    const aws = createAwsClients(flags["aws-region"], { profile: awsProfile });
 
     this.log("\n── AWS credentials ──");
     const { verifyAwsCredentials } = await import("../../aws/credentials.js");
     const { accountId } = await verifyAwsCredentials(aws.sts);
-    updateState(cwd, { awsAccountId: accountId, awsRegion: flags["aws-region"] });
+    updateState(cwd, {
+      awsAccountId: accountId,
+      awsRegion: flags["aws-region"],
+      ...(flags["aws-profile"]?.trim() ? { awsProfile: flags["aws-profile"].trim() } : {}),
+    });
     this.log(`  Account: ${accountId}`);
 
     this.log("\n── RSA Keys ──");
@@ -109,10 +158,10 @@ export default class Setup extends Command {
             "Skipped OAuth. Complete authorization later or JWT-based Lambda calls may fail until the app is allowed for your user.",
           );
         } else {
-          await authorizeConnectedApp(loginBase, key);
+          await authorizeConnectedApp(loginBase, key, flags["oauth-scope"]);
         }
       } else {
-        await authorizeConnectedApp(loginBase, key);
+        await authorizeConnectedApp(loginBase, key, flags["oauth-scope"]);
       }
     };
 
@@ -144,16 +193,9 @@ export default class Setup extends Command {
     this.log(`  ${s3Connection.label} (${s3Connection.id})`);
 
     this.log("\n── UDLO ──");
-    const { createUdlo } = await import("../../data-cloud/udlo.js");
-    const { udloName, udmoName } = await createUdlo(
-      client,
-      s3Connection.id,
-      flags["object-name"],
-      directory,
-      flags["data-space"],
-    );
+    const { udloName, udmoName } = await requireExistingDataLakeObject(client, flags["object-name"]);
     updateState(cwd, { udloName, udmoName });
-    this.log(`  UDLO: ${udloName} (DMO name tracked as ${udmoName})`);
+    this.log(`  Found UDLO: ${udloName} (DMO name tracked as ${udmoName})`);
 
     const suffix = deploymentSuffix(state);
 
@@ -188,8 +230,7 @@ export default class Setup extends Command {
     this.log("\n── Lambda function ──");
     const { ensureLambda } = await import("../../aws/lambda.js");
     const functionName = state.lambdaFunctionName ?? `udlo-notifier-${suffix}-fn`;
-    const sfOauthBaseUrl =
-      process.env.UDLO_SF_JWT_AUDIENCE?.trim() || conn.jwtAudienceUrl;
+    const sfOauthBaseUrl = flags["jwt-audience"]?.trim() || conn.jwtAudienceUrl;
     const functionArn = await ensureLambda(
       aws.lambda,
       functionName,
@@ -198,6 +239,7 @@ export default class Setup extends Command {
       conn.username,
       consumerKeySecretName,
       rsaKeySecretName,
+      flags["lambda-zip"],
     );
     updateState(cwd, { lambdaFunctionName: functionName, lambdaFunctionArn: functionArn });
     this.log(`  ${functionArn}`);

@@ -33,6 +33,13 @@ describe("state", () => {
     expect(readState(dir)).toEqual({ udloName: "A", udmoName: "B" });
   });
 
+  it("updateState preserves awsProfile when partial omits it", () => {
+    dir = mkdtempSync(join(tmpdir(), "udlo-state-"));
+    writeState(dir, { awsProfile: "prod", awsRegion: "us-east-1" });
+    const merged = updateState(dir, { udloName: "X" });
+    expect(merged).toEqual({ awsProfile: "prod", awsRegion: "us-east-1", udloName: "X" });
+  });
+
   it("clearState resets file to empty object", () => {
     dir = mkdtempSync(join(tmpdir(), "udlo-state-"));
     writeState(dir, { udloName: "X" });

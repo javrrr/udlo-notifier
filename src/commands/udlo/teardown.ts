@@ -2,15 +2,15 @@ import { Command, Flags } from "@oclif/core";
 import { confirm } from "../../prompt.js";
 
 export default class Teardown extends Command {
-  static override description = "Tear down AWS resources created by sf udlo setup (Data Cloud UDLO optional)";
+  static override description = "Tear down AWS resources created by sf udlo setup (does not remove the UDLO in Data Cloud)";
 
   static override flags = {
     "target-org": Flags.string({ char: "o", description: "Salesforce org alias or username" }),
     "aws-region": Flags.string({ description: "AWS region", default: "us-east-1" }),
-    "auto-approve": Flags.boolean({ description: "Skip confirmation prompts" }),
-    "keep-udlo": Flags.boolean({
-      description: "Do not delete the Data Cloud UDLO (keeps lake object in the org)",
+    "aws-profile": Flags.string({
+      description: "AWS named profile; optional. Overrides .udlo-state.json awsProfile when set.",
     }),
+    "auto-approve": Flags.boolean({ description: "Skip confirmation prompts" }),
   };
 
   async run(): Promise<void> {
@@ -38,7 +38,8 @@ export default class Teardown extends Command {
     }
 
     const { createAwsClients } = await import("../../aws/clients.js");
-    const aws = createAwsClients(flags["aws-region"]);
+    const awsProfile = flags["aws-profile"]?.trim() || state.awsProfile;
+    const aws = createAwsClients(flags["aws-region"], { profile: awsProfile });
 
     if (state.s3Bucket && state.lambdaFunctionArn) {
       this.log("\n── S3 notifications ──");
@@ -87,26 +88,9 @@ export default class Teardown extends Command {
       }
     }
 
-    if (state.udloName && !flags["keep-udlo"]) {
-      const shouldDelete =
-        flags["auto-approve"] ||
-        (await confirm(`Delete Data Cloud UDLO "${state.udloName}"? (Irreversible in org)`));
-      if (shouldDelete) {
-        this.log("\n── Data Cloud UDLO ──");
-        try {
-          const { resolveConnection } = await import("../../auth/sf-auth.js");
-          const { createData360Client } = await import("../../data-cloud/client.js");
-          const { destroyUdlo } = await import("../../data-cloud/udlo.js");
-          const conn = await resolveConnection(flags["target-org"]);
-          const dc = createData360Client(conn);
-          await destroyUdlo(dc, state.udloName);
-          this.log(`  Deleted ${state.udloName}`);
-        } catch (e) {
-          this.warn(`  UDLO: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      } else {
-        this.log("\n── Data Cloud UDLO ── skipped");
-      }
+    if (state.udloName) {
+      this.log("\n── Data Cloud UDLO ──");
+      this.log(`  Left in place (${state.udloName}). Remove it in Data Cloud if you no longer need it.`);
     }
 
     this.log("\n── Connected App ──");

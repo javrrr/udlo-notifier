@@ -10,6 +10,9 @@ export default class Status extends Command {
   static override flags = {
     "target-org": Flags.string({ char: "o", description: "Salesforce org alias or username" }),
     "aws-region": Flags.string({ description: "AWS region", default: "us-east-1" }),
+    "aws-profile": Flags.string({
+      description: "AWS named profile; optional. Overrides .udlo-state.json awsProfile when set.",
+    }),
   };
 
   async run(): Promise<void> {
@@ -28,7 +31,8 @@ export default class Status extends Command {
     }
 
     const { createAwsClients } = await import("../../aws/clients.js");
-    const aws = createAwsClients(flags["aws-region"]);
+    const awsProfile = flags["aws-profile"]?.trim() || state.awsProfile;
+    const aws = createAwsClients(flags["aws-region"], { profile: awsProfile });
 
     const { resolveConnection } = await import("../../auth/sf-auth.js");
     const { createData360Client } = await import("../../data-cloud/client.js");

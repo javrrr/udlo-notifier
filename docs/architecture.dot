@@ -17,7 +17,7 @@ digraph {
     cap [label="Connected App (Core)\nUDLO_Notifier + JWT cert\nNamed-user JWT off"];
     oauth [label="Browser OAuth :1717\napi + refresh_token + cdp_ingest_api"];
     s3conn [label="Data Cloud: S3 connection\nkeys or AssumeRole → your AWS"];
-    udlo [label="Data Cloud: UDLO / UDMO\ntrailing slash e.g. afd360/"];
+    udlo [label="Data Cloud: UDLO / UDMO (UI)\ntrailing slash e.g. afd360/"];
   }
 
   subgraph cluster_aws {

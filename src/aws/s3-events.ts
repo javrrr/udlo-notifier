@@ -11,13 +11,24 @@ import {
   ResourceConflictException,
 } from "@aws-sdk/client-lambda";
 
+/**
+ * S3 notification prefix for object keys under a logical folder. Empty = whole bucket (no prefix filter).
+ * Trailing slash matches Data Cloud UDLO directory conventions (e.g. `afd360/`).
+ */
+export function s3KeyPrefixForNotifications(relativeDirectory: string): string {
+  const d = relativeDirectory.trim();
+  if (d === "") {
+    return "";
+  }
+  return d.endsWith("/") ? d : `${d}/`;
+}
+
 /** No filter → S3 delivers all object-created events for the bucket to this Lambda. */
 function prefixFilter(directory: string): LambdaFunctionConfiguration["Filter"] | undefined {
-  const d = directory.trim();
-  if (d === "") {
+  const prefix = s3KeyPrefixForNotifications(directory);
+  if (prefix === "") {
     return undefined;
   }
-  const prefix = d.endsWith("/") ? d : `${d}/`;
   return {
     Key: {
       FilterRules: [{ Name: "prefix", Value: prefix }],
