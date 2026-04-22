@@ -49,7 +49,7 @@ export async function configureS3Events(
   const prefix = s3KeyPrefix(directory);
   const rule: LambdaFunctionConfiguration = {
     LambdaFunctionArn: lambdaArn,
-    Events: ["s3:ObjectCreated:*"],
+    Events: ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"],
     ...(prefix ? { Filter: { Key: { FilterRules: [{ Name: "prefix", Value: prefix }] } } } : {}),
   };
 

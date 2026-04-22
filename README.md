@@ -60,10 +60,10 @@ Run from the DX project root. All artifacts go under `.udlo-notifier/` (state + 
 ```bash
 udlo-notifier udlo setup -o <org> -b <bucket> -n <udlo-name> -c <s3-connection-name> [-d <prefix>]
 udlo-notifier udlo status
-udlo-notifier udlo delete --query "SELECT id__c FROM <udlo> ORDER BY CreatedDate__c DESC LIMIT 1"
-udlo-notifier udlo delete --ids id-1,id-2
 udlo-notifier udlo teardown
 ```
+
+**Deleting UDLO records:** the S3 notification forwards both `ObjectCreated:*` and `ObjectRemoved:*` events to Data Cloud, so `aws s3 rm s3://<bucket>/<key>` removes both the file and the corresponding UDLO row. Row deletion in Data Cloud is asynchronous (typically 1–3 minutes).
 
 | Flag | Notes |
 |---|---|

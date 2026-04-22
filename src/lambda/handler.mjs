@@ -96,7 +96,17 @@ async function getCdpToken() {
 }
 
 export const handler = async (event) => {
-  log("event", { records: event?.Records?.length ?? 0, keys: Object.keys(event ?? {}) });
+  const records = event?.Records ?? [];
+  log("event", {
+    records: records.length,
+    keys: Object.keys(event ?? {}),
+    summary: records.map((r) => ({
+      eventName: r.eventName,
+      bucket: r.s3?.bucket?.name,
+      key: r.s3?.object?.key,
+      size: r.s3?.object?.size,
+    })),
+  });
   const { accessToken, instanceUrl } = await getCdpToken();
   const host = instanceUrl.replace(/^https?:\/\//, "").split("/")[0];
   const url = `https://${host}/api/v1/unstructuredIngest?sourceType=aws`;
