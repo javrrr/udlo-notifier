@@ -7,7 +7,7 @@ digraph {
 
   rankdir=TB;
 
-  dev [label="Developer\nlambda:zip + sf udlo setup", shape=folder];
+  dev [label="Developer\nlambda:zip + udlo-notifier udlo setup", shape=folder];
 
   subgraph cluster_sf {
     label="Salesforce org";

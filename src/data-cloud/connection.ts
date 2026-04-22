@@ -57,10 +57,10 @@ export async function requireS3Connection(
   const found = await findS3Connection(client, bucketName);
   if (!found) {
     const bucketHint = bucketName
-      ? ` The connection must reference bucket "${bucketName}" (same as sf udlo setup -b).`
+      ? ` The connection must reference bucket "${bucketName}" (same as udlo setup -b).`
       : "";
     throw new Error(
-      "No S3 connection found in Data Cloud. This plugin does not create that connection — only AWS Lambda/IAM later." +
+      "No S3 connection found in Data Cloud. This tool does not create that connection — only AWS Lambda/IAM later." +
         bucketHint +
         "\n  In the org: Setup > Data Cloud > Connections > New > Amazon S3 (use AWS credentials or an IAM role as the wizard requires).\n" +
         "Then re-run this command.",

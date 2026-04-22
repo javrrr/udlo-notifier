@@ -2,7 +2,8 @@ import { Command, Flags } from "@oclif/core";
 import { confirm } from "../../prompt.js";
 
 export default class Teardown extends Command {
-  static override description = "Tear down AWS resources created by sf udlo setup (does not remove the UDLO in Data Cloud)";
+  static override description =
+    "Tear down AWS resources created by udlo setup (does not remove the UDLO in Data Cloud)";
 
   static override flags = {
     "target-org": Flags.string({ char: "o", description: "Salesforce org alias or username" }),

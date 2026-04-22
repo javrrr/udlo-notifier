@@ -109,7 +109,7 @@ export async function ensureLambda(
   sfUsername: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
-  /** Local path to the Lambda deployment package (see `sf udlo setup --lambda-zip`). */
+  /** Local path to the Lambda deployment package (see `udlo-notifier udlo setup --lambda-zip`). */
   lambdaZipPath: string,
 ): Promise<string> {
   const zipBuffer = loadLambdaZipFromPath(lambdaZipPath);

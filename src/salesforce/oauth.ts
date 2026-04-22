@@ -8,7 +8,7 @@ const CLIENT_SECRET_ENV = "SF_UDLO_CLIENT_SECRET";
 /**
  * Scopes sent on the /authorize URL only (Salesforce UDLO S3 guide: user must approve api,
  * refresh_token, and cdp_ingest_api). Omitting `scope` requests every Connected App scope and can
- * trigger OAUTH_CODE_CRED_SCOPE_TOO_LONG — pass a narrower string via `sf udlo setup --oauth-scope` if needed.
+ * trigger OAUTH_CODE_CRED_SCOPE_TOO_LONG — pass a narrower string via `udlo-notifier udlo setup --oauth-scope` if needed.
  *
  * @see https://developer.salesforce.com/docs/data/data-cloud-int/guide/c360-a-awss3-udlo.html
  */

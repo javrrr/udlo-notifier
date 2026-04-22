@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single entrypoint for AWS IAM helpers used before `sf udlo setup` (Data Cloud S3).
+# Single entrypoint for AWS IAM helpers used before `udlo-notifier udlo setup` (Data Cloud S3).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"

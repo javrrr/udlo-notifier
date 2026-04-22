@@ -27,7 +27,7 @@ export async function resolveConnection(targetOrg?: string): Promise<SfConnectio
   const sfCore: any = await import(SF_CORE_MODULE).catch(() => {
     throw new Error(
       "@salesforce/core is required for org connectivity. " +
-        "Install it with: npm add -D @salesforce/core",
+        "Install this package with its dependencies (see package.json), or run: npm add @salesforce/core",
     );
   });
 

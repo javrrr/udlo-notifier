@@ -26,7 +26,7 @@ export default class Status extends Command {
     this.log("────────────────────── ──────── ─────────────────────────────────────────");
 
     if (!state.lambdaFunctionName && !state.s3Bucket) {
-      this.log("(No state — run sf udlo setup first)");
+      this.log("(No state — run udlo-notifier udlo setup first)");
       return;
     }
 
