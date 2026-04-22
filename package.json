@@ -14,7 +14,7 @@
     "cli"
   ],
   "license": "MIT",
-  "author": "Javier Leung",
+  "author": "javrrr",
   "type": "module",
   "bin": {
     "udlo-notifier": "./bin/run.js"
