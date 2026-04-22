@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, Flags } from "@oclif/core";
@@ -5,6 +6,7 @@ import type { Data360Client } from "data-360-sdk";
 import { uniqueSuffix } from "../../helpers.js";
 import { confirm } from "../../prompt.js";
 import type { PipelineState } from "../../state.js";
+import { bundledLambdaZipPath, resolveLambdaZipPath } from "../../aws/lambda.js";
 
 const pluginRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -80,9 +82,8 @@ export default class Setup extends Command {
     "lambda-zip": Flags.string({
       char: "z",
       description:
-        "Path to the Lambda deployment .zip (absolute or relative to cwd). Official: forcedotcom/file-notifier-for-blob-store " +
-        "`cloud_function_zips/aws_lambda_function.zip`; local: `npm run lambda:zip` → `dist/lambda-local.zip`.",
-      required: true,
+        "Optional. Lambda deployment .zip (absolute or relative to cwd). Default: stock zip shipped with this package " +
+        "(`s3/aws_lambda_function.zip`). Override for a custom build (e.g. `npm run lambda:zip` → `dist/lambda-local.zip`).",
     }),
     "jwt-audience": Flags.string({
       description:
@@ -228,6 +229,18 @@ export default class Setup extends Command {
     this.log(`  ${consumerKeySecretName}, ${rsaKeySecretName}`);
 
     this.log("\n── Lambda function ──");
+    const customLambdaZip = flags["lambda-zip"]?.trim();
+    const lambdaZipPath = customLambdaZip
+      ? resolveLambdaZipPath(customLambdaZip)
+      : bundledLambdaZipPath(pluginRoot);
+    if (!existsSync(lambdaZipPath)) {
+      throw new Error(
+        customLambdaZip
+          ? `Lambda zip not found: ${lambdaZipPath}`
+          : `Bundled Lambda zip is missing at ${lambdaZipPath}. Reinstall the package or pass --lambda-zip with a path to a .zip file.`,
+      );
+    }
+    this.log(`  ${customLambdaZip ? "Custom" : "Bundled"} package: ${lambdaZipPath}`);
     const { ensureLambda } = await import("../../aws/lambda.js");
     const functionName = state.lambdaFunctionName ?? `udlo-notifier-${suffix}-fn`;
     const sfOauthBaseUrl = flags["jwt-audience"]?.trim() || conn.jwtAudienceUrl;
@@ -239,7 +252,7 @@ export default class Setup extends Command {
       conn.username,
       consumerKeySecretName,
       rsaKeySecretName,
-      flags["lambda-zip"],
+      lambdaZipPath,
     );
     updateState(cwd, { lambdaFunctionName: functionName, lambdaFunctionArn: functionArn });
     this.log(`  ${functionArn}`);

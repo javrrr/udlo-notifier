@@ -38,7 +38,7 @@ The diagram is a **[Graphviz](https://graphviz.org/) DOT** file — **no Node/np
 | **Salesforce CLI** | `sf` with a logged-in org (`sf org login web` or similar) |
 | **AWS credentials** | Environment variables, shared credentials file, or `AWS_PROFILE` — whatever the AWS SDK v3 picks up |
 | **OpenSSL** | Used locally to mint the X.509 cert for the Connected App (`openssl` on `PATH`) |
-| **Lambda ZIP** | Pass **`--lambda-zip` / `-z`** to **`udlo-notifier udlo setup`** (path to the deployment `.zip`; see below) |
+| **Lambda ZIP** | **Default:** stock **`s3/aws_lambda_function.zip`** bundled with the npm package. Pass **`--lambda-zip` / `-z`** only when you want a **custom** build (see below). |
 | **Data Cloud → S3** | An **Amazon S3** connection must **already exist** in the org for your bucket (Data Cloud UI). Attach **customer-side IAM** first using **`s3/`** — **`npm run s3:user-policy -- --user <iam-user> --bucket <bucket>`** (note the **`--`** before flags) or **`npm run s3:role -- …`** — see `s3/README.md`. |
 | **Data Cloud UDLO** | **Create in the UI** (Data Lake Objects → New → From External Files) with the same API name you pass to **`udlo-notifier udlo setup -n`**. The CLI only **verifies** the object exists via the Connect API. |
 | **OAuth consent** | After setup deploys the Connected App, complete the browser step and **Allow** scopes including **Manage Data Cloud Ingestion API data**. Confirm under **Setup → Connected Apps OAuth Usage**. Matches [Set up unstructured data from Amazon S3](https://developer.salesforce.com/docs/data/data-cloud-int/guide/c360-a-awss3-udlo.html). |
@@ -68,12 +68,12 @@ Pin the tool as a **devDependency** and call the bin from **npm scripts** (run c
   },
   "scripts": {
     "udlo:help": "udlo-notifier udlo --help",
-    "udlo:setup": "udlo-notifier udlo setup -o myOrg -b my-bucket -n MyUdlo -z node_modules/udlo-notifier/s3/aws_lambda_function.zip"
+    "udlo:setup": "udlo-notifier udlo setup -o myOrg -b my-bucket -n MyUdlo"
   }
 }
 ```
 
-Point **`-z`** at any Lambda deployment zip: build one with **`npm run lambda:zip --prefix node_modules/udlo-notifier`** (writes **`node_modules/udlo-notifier/dist/lambda-local.zip`**), use the stock **`node_modules/udlo-notifier/s3/aws_lambda_function.zip`** shipped in the package if it matches your needs, or download from [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store). After **`npm install`**, the **`udlo-notifier`** binary is on `PATH` inside npm scripts.
+Omit **`-z`** to use the **bundled** stock zip from the package. Pass **`-z path/to.zip`** for a **custom** package: e.g. **`npm run lambda:zip --prefix node_modules/udlo-notifier`** (writes **`node_modules/udlo-notifier/dist/lambda-local.zip`**) or the official artifact from [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store). After **`npm install`**, the **`udlo-notifier`** binary is on `PATH` inside npm scripts.
 
 Published installs (`npm install udlo-notifier`) ship **`force-app/`**, **`s3/`** helpers, and **`dist/`** via the package `files` list — no `sf plugins link` required.
 
@@ -81,7 +81,7 @@ Published installs (`npm install udlo-notifier`) ship **`force-app/`**, **`s3/`*
 
 | Command | Purpose |
 |---------|---------|
-| `udlo-notifier udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → **verify** S3 connection + UDLO exist → AWS (STS, IAM, Secrets, Lambda from **`--lambda-zip`**) → S3 notifications. Writes **`.udlo-state.json`** in the **current working directory**. |
+| `udlo-notifier udlo setup` | Full pipeline: keys → Connected App (+ optional OAuth confirm) → **verify** S3 connection + UDLO exist → AWS (STS, IAM, Secrets, Lambda from **bundled or `--lambda-zip`**) → S3 notifications. Writes **`.udlo-state.json`** in the **current working directory**. |
 | `udlo-notifier udlo teardown` | Removes S3 notifications, Lambda, secrets, IAM role; clears state. Does **not** delete the Connected App or the **UDLO** in Data Cloud (remove those in the UI if needed). |
 | `udlo-notifier udlo status` | Reads `.udlo-state.json` and probes Salesforce + AWS resources. |
 
@@ -90,8 +90,8 @@ If you linked the plugin: same subcommands as **`sf udlo setup`**, **`sf udlo st
 Examples:
 
 ```bash
-npm run lambda:zip
-udlo-notifier udlo setup -o myOrg -b my-bucket -d path/to/files -n MyDocuments -z dist/lambda-local.zip
+udlo-notifier udlo setup -o myOrg -b my-bucket -d path/to/files -n MyDocuments
+npm run lambda:zip && udlo-notifier udlo setup -o myOrg -b my-bucket -n MyDocuments -z dist/lambda-local.zip
 udlo-notifier udlo status -o myOrg
 udlo-notifier udlo teardown -o myOrg --auto-approve
 ```
@@ -100,7 +100,7 @@ Useful flags (see **`udlo-notifier udlo setup --help`**):
 
 | Flag | Notes |
 |------|--------|
-| **`--lambda-zip` / `-z`** | **Required.** Path to the Lambda `.zip` (absolute or relative to the **current working directory** when you invoke the CLI). |
+| **`--lambda-zip` / `-z`** | **Optional.** Custom Lambda `.zip` (absolute or relative to **cwd**). If omitted, setup uses the **stock zip** shipped with the package (`s3/aws_lambda_function.zip` next to the installed CLI). |
 | `--directory` / `-d` | S3 key prefix without leading/trailing slashes; **empty** = bucket root. Must match your UDLO’s directory in Data Cloud; notifications use a trailing slash when non-empty. |
 | `--jwt-audience` | Optional. `https://login.salesforce.com` or `https://test.salesforce.com` for JWT — defaults from the target org. |
 | `--oauth-scope` | Optional. Space-separated scopes for the browser `/authorize` step. Default: `api refresh_token cdp_ingest_api`. |
@@ -108,7 +108,7 @@ Useful flags (see **`udlo-notifier udlo setup --help`**):
 | `--refresh-connected-app` | Redeploy Connected App metadata (cert, policies). Use after template or org policy changes. |
 | `--auto-approve` | Skips the OAuth browser confirmation prompt (still recommended to complete consent once). |
 
-Required: **`--bucket`**, **`--object-name`** (existing UDLO API name), **`--lambda-zip` / `-z`**.
+Required: **`--bucket`**, **`--object-name`** (existing UDLO API name). **`--lambda-zip` / `-z`** is optional (bundled default).
 
 ## End-to-end preflight (Salesforce + keys + Connected App + Data 360 probe)
 
@@ -136,7 +136,9 @@ npm treats leading `-` / `--` as its own options unless you insert **`--`** befo
 
 ## AWS Lambda deployment package
 
-**Required on setup:** pass **`--lambda-zip` / `-z`** with a local `.zip`. Download the published package from Salesforce’s [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store) (`cloud_function_zips/aws_lambda_function.zip`), or **build your own** from `aws_lambda_function/`:
+**Default:** setup uploads the **bundled** **`s3/aws_lambda_function.zip`** from the npm package (same artifact family as [file-notifier-for-blob-store](https://github.com/forcedotcom/file-notifier-for-blob-store)).
+
+**Custom zip:** pass **`-z`** with a local `.zip` — for example build from this repo’s **`aws_lambda_function/`**:
 
 ```bash
 npm run lambda:zip
@@ -145,7 +147,7 @@ npm run build && udlo-notifier udlo setup … -z dist/lambda-local.zip
 
 | Item | Value |
 |------|--------|
-| **`--lambda-zip` / `-z`** | **Required** for **`udlo-notifier udlo setup`** — path to the Lambda deployment `.zip`. |
+| **`--lambda-zip` / `-z`** | **Optional** — overrides the bundled stock Lambda `.zip`. |
 | **Runtime** | **Python 3.11** |
 | **Handler** | `unstructured_data.s3_events_handler` (must match the ZIP layout) |
 
@@ -153,7 +155,7 @@ If Lambda creation fails with handler or runtime errors, compare with the [file-
 
 ## Environment variables
 
-Setup prefers **flags** (`--lambda-zip`, `--jwt-audience`, `--oauth-scope`) over env for the same knobs. One value is still only read from the environment because it is a **secret**:
+Setup prefers **flags** (`--jwt-audience`, `--oauth-scope`, optional **`--lambda-zip`**) over env for the same knobs where applicable. One value is still only read from the environment because it is a **secret**:
 
 | Variable | Used by |
 |----------|---------|
@@ -170,7 +172,7 @@ Setup prefers **flags** (`--lambda-zip`, `--jwt-audience`, `--oauth-scope`) over
 ```
 src/
   auth/sf-auth.ts           # resolveConnection() — lazy @salesforce/core
-  aws/                      # STS, IAM role, Secrets Manager, Lambda (zip path from setup --lambda-zip), S3 notifications
+  aws/                      # STS, IAM role, Secrets Manager, Lambda (bundled or custom zip), S3 notifications
   data-cloud/               # Data360Client factory, S3 connection lookup
   salesforce/               # RSA keys, Connected App deploy/retrieve, OAuth callback on :1717
   state.ts                  # .udlo-state.json

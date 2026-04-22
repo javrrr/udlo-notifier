@@ -11,15 +11,25 @@ import {
   type UpdateFunctionConfigurationRequest,
 } from "@aws-sdk/client-lambda";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { sleep } from "../helpers.js";
 
 const LAMBDA_ZIP_MAX_BYTES = 52 * 1024 * 1024;
 
+/** Stock Lambda ZIP shipped with this package (`s3/aws_lambda_function.zip` in npm `files`). */
+export function bundledLambdaZipPath(packageRoot: string): string {
+  return join(packageRoot, "s3", "aws_lambda_function.zip");
+}
+
+/** Resolve a user-supplied path (absolute or relative to `process.cwd()`). */
+export function resolveLambdaZipPath(pathStr: string): string {
+  const trimmed = pathStr.trim();
+  return isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
+}
+
 /** Load a deployment package from disk (absolute path or relative to `process.cwd()`). */
 export function loadLambdaZipFromPath(pathStr: string): Buffer {
-  const trimmed = pathStr.trim();
-  const resolved = isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
+  const resolved = resolveLambdaZipPath(pathStr);
   if (!existsSync(resolved)) {
     throw new Error(`Lambda zip not found: ${resolved}`);
   }
@@ -109,7 +119,7 @@ export async function ensureLambda(
   sfUsername: string,
   consumerKeySecretName: string,
   rsaKeySecretName: string,
-  /** Local path to the Lambda deployment package (see `udlo-notifier udlo setup --lambda-zip`). */
+  /** Local path to the Lambda deployment package (bundled stock zip or custom `--lambda-zip`). */
   lambdaZipPath: string,
 ): Promise<string> {
   const zipBuffer = loadLambdaZipFromPath(lambdaZipPath);
