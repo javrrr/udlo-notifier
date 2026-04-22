@@ -1,6 +1,6 @@
 {
   "name": "udlo-notifier",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Minimal CLI to wire S3 → Data Cloud UDLO ingestion (Lambda + Secrets Manager + S3 notifications)",
   "keywords": [
     "salesforce",
