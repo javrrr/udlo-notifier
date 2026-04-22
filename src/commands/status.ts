@@ -3,8 +3,8 @@ import { GetRoleCommand } from "@aws-sdk/client-iam";
 import { GetFunctionCommand } from "@aws-sdk/client-lambda";
 import { GetBucketNotificationConfigurationCommand } from "@aws-sdk/client-s3";
 import { DescribeSecretCommand } from "@aws-sdk/client-secrets-manager";
-import { createAwsClients } from "../../aws/clients.js";
-import { readState } from "../../state.js";
+import { createAwsClients } from "../aws/clients.js";
+import { readState } from "../state.js";
 
 export default class Status extends Command {
   static override description = "Show health of the UDLO pipeline";
@@ -19,7 +19,7 @@ export default class Status extends Command {
     const state = readState(process.cwd());
 
     if (!state.lambdaFunctionName && !state.s3Bucket) {
-      this.log("No state — run `udlo-notifier udlo setup` first.");
+      this.log("No state — run `udlo-notifier setup` first.");
       return;
     }
 

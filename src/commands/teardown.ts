@@ -1,10 +1,10 @@
 import { Command, Flags } from "@oclif/core";
-import { createAwsClients } from "../../aws/clients.js";
-import { destroyLambdaRole } from "../../aws/iam.js";
-import { destroyLambda } from "../../aws/lambda.js";
-import { removeS3Events } from "../../aws/s3-events.js";
-import { destroySecrets } from "../../aws/secrets.js";
-import { readState, removeWorkspace } from "../../state.js";
+import { createAwsClients } from "../aws/clients.js";
+import { destroyLambdaRole } from "../aws/iam.js";
+import { destroyLambda } from "../aws/lambda.js";
+import { removeS3Events } from "../aws/s3-events.js";
+import { destroySecrets } from "../aws/secrets.js";
+import { readState, removeWorkspace } from "../state.js";
 
 export default class Teardown extends Command {
   static override description = "Tear down AWS resources (Lambda, IAM role, secrets, S3 notifications)";

@@ -46,9 +46,9 @@ As a dev dependency in a Salesforce DX project:
 {
   "devDependencies": { "udlo-notifier": "^0.2.0" },
   "scripts": {
-    "udlo:setup": "udlo-notifier udlo setup -o myOrg -b my-bucket -n MyUdlo__dll -c MyS3Connection",
-    "udlo:status": "udlo-notifier udlo status",
-    "udlo:teardown": "udlo-notifier udlo teardown"
+    "udlo:setup": "udlo-notifier setup -o myOrg -b my-bucket -n MyUdlo__dll -c MyS3Connection",
+    "udlo:status": "udlo-notifier status",
+    "udlo:teardown": "udlo-notifier teardown"
   }
 }
 ```
@@ -58,9 +58,9 @@ Run from the DX project root. All artifacts go under `.udlo-notifier/` (state + 
 ## Commands
 
 ```bash
-udlo-notifier udlo setup -o <org> -b <bucket> -n <udlo-name> -c <s3-connection-name> [-d <prefix>]
-udlo-notifier udlo status
-udlo-notifier udlo teardown
+udlo-notifier setup -o <org> -b <bucket> -n <udlo-name> -c <s3-connection-name> [-d <prefix>]
+udlo-notifier status
+udlo-notifier teardown
 ```
 
 **Deleting UDLO records:** the S3 notification forwards both `ObjectCreated:*` and `ObjectRemoved:*` events to Data Cloud, so `aws s3 rm s3://<bucket>/<key>` removes both the file and the corresponding UDLO row. Row deletion in Data Cloud is asynchronous (typically 1–3 minutes).
@@ -100,7 +100,7 @@ None required. The Lambda reads its config from env vars set at deploy time:
 ## Teardown
 
 ```bash
-udlo-notifier udlo teardown
+udlo-notifier teardown
 ```
 
 Deletes the Lambda, IAM role, secrets, S3 notification, and the local `.udlo-notifier/` workspace. Leaves the Connected App and UDLO in place — remove them from the Salesforce UI if needed.

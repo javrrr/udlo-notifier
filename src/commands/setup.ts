@@ -1,18 +1,18 @@
 import { Command, Flags } from "@oclif/core";
 import { fileURLToPath } from "node:url";
-import { resolveConnection } from "../../auth/sf-auth.js";
-import { createAwsClients, getAwsAccountId } from "../../aws/clients.js";
-import { ensureLambdaRole } from "../../aws/iam.js";
-import { ensureLambda } from "../../aws/lambda.js";
-import { configureS3Events } from "../../aws/s3-events.js";
-import { ensureSecrets } from "../../aws/secrets.js";
-import { createData360Client, requireUdlo, resolveS3Connection } from "../../data-cloud/client.js";
-import { deployConnectedApp, findExistingConnectedApp } from "../../salesforce/connected-app.js";
-import { ensureKeyPair } from "../../salesforce/keys.js";
-import { authorizeConnectedApp } from "../../salesforce/oauth.js";
-import { keysDir, readState, stateFile, updateState, workspaceDir } from "../../state.js";
+import { resolveConnection } from "../auth/sf-auth.js";
+import { createAwsClients, getAwsAccountId } from "../aws/clients.js";
+import { ensureLambdaRole } from "../aws/iam.js";
+import { ensureLambda } from "../aws/lambda.js";
+import { configureS3Events } from "../aws/s3-events.js";
+import { ensureSecrets } from "../aws/secrets.js";
+import { createData360Client, requireUdlo, resolveS3Connection } from "../data-cloud/client.js";
+import { deployConnectedApp, findExistingConnectedApp } from "../salesforce/connected-app.js";
+import { ensureKeyPair } from "../salesforce/keys.js";
+import { authorizeConnectedApp } from "../salesforce/oauth.js";
+import { keysDir, readState, stateFile, updateState, workspaceDir } from "../state.js";
 
-const pluginRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 export default class Setup extends Command {
   static override description = "Set up an S3-to-Data-Cloud unstructured data pipeline";
