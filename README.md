@@ -40,20 +40,52 @@ aws iam put-role-policy --role-name data-cloud-s3 --policy-name DataCloudS3 --po
 
 ## Install
 
-As a dev dependency in a Salesforce DX project:
+From your Salesforce DX project root (where `sfdx-project.json` lives):
+
+```bash
+npm install --save-dev udlo-notifier
+echo ".udlo-notifier/" >> .gitignore
+```
+
+## Run
+
+Always run **from the DX project root** — the CLI writes state to `<cwd>/.udlo-notifier/` and uses `sf project retrieve`, which requires an `sfdx-project.json` in cwd.
+
+**Option A — `npx`:**
+
+```bash
+npx udlo-notifier setup -o myOrg -b my-bucket -n my_udlo__dll -c MyS3Connection
+npx udlo-notifier status
+npx udlo-notifier teardown
+```
+
+**Option B — npm scripts** (recommended for repeatable pipelines):
 
 ```json
 {
-  "devDependencies": { "udlo-notifier": "^0.2.0" },
+  "devDependencies": { "udlo-notifier": "^0.3.0" },
   "scripts": {
-    "udlo:setup": "udlo-notifier setup -o myOrg -b my-bucket -n MyUdlo__dll -c MyS3Connection",
+    "udlo:setup": "udlo-notifier setup -o myOrg -b my-bucket -n my_udlo__dll -c MyS3Connection",
     "udlo:status": "udlo-notifier status",
     "udlo:teardown": "udlo-notifier teardown"
   }
 }
 ```
 
-Run from the DX project root. All artifacts go under `.udlo-notifier/` (state + keys); add that to `.gitignore`.
+Then:
+
+```bash
+npm run udlo:setup
+npm run udlo:status
+npm run udlo:teardown
+```
+
+**First-run checklist:**
+
+1. Authenticate with Salesforce: `sf org login web -a myOrg` (or set `sf config set target-org myOrg`)
+2. AWS credentials available (env vars, `AWS_PROFILE`, or pass `--aws-profile`)
+3. In Data Cloud UI: create the S3 connection + UDLO (this tool only verifies they exist)
+4. Run `udlo-notifier setup` — browser opens for one-time OAuth consent; approve `Manage Data Cloud Ingestion API data`
 
 ## Commands
 
