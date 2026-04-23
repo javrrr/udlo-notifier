@@ -130,7 +130,7 @@ export async function ensureLambda(
     await lambda.send(
       new CreateFunctionCommand({
         FunctionName: name,
-        Runtime: "nodejs20.x",
+        Runtime: "nodejs22.x",
         Handler: "handler.handler",
         Role: roleArn,
         Code: { ZipFile: zip },

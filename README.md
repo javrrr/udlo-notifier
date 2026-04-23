@@ -8,7 +8,7 @@ CLI that wires an S3 bucket to a Salesforce Data Cloud **UDLO** (Unstructured Da
 
 | Tool | Why |
 |---|---|
-| Node.js ≥ 20 | Runs the CLI |
+| Node.js ≥ 22 | Runs the CLI |
 | `sf` CLI with a logged-in org | Deploys Connected App metadata |
 | AWS credentials | Env vars, `AWS_PROFILE`, or `--aws-profile` |
 | `openssl` on PATH | Generates the JWT cert |
@@ -116,7 +116,7 @@ On first setup, the CLI deploys the `UDLO_Notifier` Connected App and opens a br
 | Salesforce Connected App | `UDLO_Notifier` |
 | AWS IAM role | `udlo-notifier-<suffix>-role` |
 | AWS Secrets Manager | `udlo-notifier-<suffix>-consumer-key`, `udlo-notifier-<suffix>-rsa-key` |
-| AWS Lambda (Node.js 20) | `udlo-notifier-<suffix>-fn` |
+| AWS Lambda (Node.js 22) | `udlo-notifier-<suffix>-fn` |
 | S3 notification | `s3:ObjectCreated:*` → Lambda, prefix-filtered |
 
 The Lambda holds only an execution role for CloudWatch Logs + `secretsmanager:GetSecretValue` on its two secrets. It does **not** call `s3:GetObject` — Data Cloud reads object bytes directly using the IAM principal you attached to the S3 connection.
