@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SfConnection } from "../auth/sf-auth.js";
@@ -19,13 +19,61 @@ function sf(args: string[]): string {
   }
 }
 
+const MANIFEST_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+  <types>
+    <members>${CONNECTED_APP_NAME}</members>
+    <name>ConnectedApp</name>
+  </types>
+  <version>66.0</version>
+</Package>
+`;
+
+function findMetadataFile(dir: string, filename: string): string | null {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = findMetadataFile(p, filename);
+      if (found) return found;
+    } else if (entry.name === filename) {
+      return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * Retrieves the ConnectedApp metadata and extracts its consumerKey. Uses a manifest +
+ * `--target-metadata-dir --unzip` so the retrieve bypasses the consumer project's
+ * source-filter (which would otherwise return zero files when UDLO_Notifier isn't
+ * already present in the consumer's force-app/). The metadata dir must live inside
+ * the consumer project root — `sf` CLI enforces this.
+ */
 function readConsumerKey(conn: SfConnection): string {
   const dir = createRetrieveTempDir(process.cwd());
   try {
-    sf(["project", "retrieve", "start", "--metadata", `ConnectedApp:${CONNECTED_APP_NAME}`, "--target-org", conn.username, "--output-dir", dir, "--json"]);
-    const xmlPath = join(dir, "connectedApps", `${CONNECTED_APP_NAME}.connectedApp-meta.xml`);
-    if (!existsSync(xmlPath)) {
-      throw new Error(`Retrieved metadata missing: ${xmlPath}`);
+    const manifestPath = join(dir, "package.xml");
+    writeFileSync(manifestPath, MANIFEST_XML);
+    sf([
+      "project",
+      "retrieve",
+      "start",
+      "--manifest",
+      manifestPath,
+      "--target-org",
+      conn.username,
+      "--target-metadata-dir",
+      dir,
+      "--unzip",
+      "--json",
+    ]);
+    const xmlPath = findMetadataFile(dir, `${CONNECTED_APP_NAME}.connectedApp`);
+    if (!xmlPath) {
+      throw new Error(
+        `ConnectedApp ${CONNECTED_APP_NAME} not found in org after retrieve. ` +
+          "Check that the deploy step succeeded (Setup > App Manager > UDLO Notifier in the Salesforce org).",
+      );
     }
     const key = readFileSync(xmlPath, "utf-8").match(/<consumerKey>\s*([^<]+?)\s*<\/consumerKey>/)?.[1]?.trim();
     if (!key) throw new Error("Connected App metadata missing consumerKey");

@@ -4,3 +4,4 @@ dist/
 *.tgz
 .udlo-notifier/
 .DS_Store
+.sfdx
