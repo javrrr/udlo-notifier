@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # required for npm OIDC trusted publishing
     steps:
       - uses: actions/checkout@v5
 
@@ -16,6 +17,10 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 22 ships npm 10.
+      # Pin to the 11.x line for a Node-22-safe, OIDC-capable npm.
+      - run: npm install -g npm@^11
 
       - name: Set version from git tag
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
@@ -26,6 +31,6 @@ jobs:
 
       - run: npm run build
 
+      # No NODE_AUTH_TOKEN: npm exchanges the OIDC id-token for a short-lived
+      # publish token and attaches build provenance automatically.
       - run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
